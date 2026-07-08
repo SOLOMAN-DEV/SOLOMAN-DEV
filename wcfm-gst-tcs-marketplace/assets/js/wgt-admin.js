@@ -34,4 +34,18 @@
 	$( document ).on( 'blur', '.wgt-gstin-input', function () {
 		validateGstin( $( this ) );
 	} );
+
+	function toggleB2BFields() {
+		var $checkbox = $( '#billing_is_business' );
+		if ( ! $checkbox.length ) {
+			return;
+		}
+		$( '.wgt-b2b-field' ).toggle( $checkbox.is( ':checked' ) );
+	}
+
+	$( document ).on( 'change', '#billing_is_business', toggleB2BFields );
+	$( document.body ).on( 'updated_checkout', toggleB2BFields );
+	$( function () {
+		toggleB2BFields();
+	} );
 } )( jQuery );

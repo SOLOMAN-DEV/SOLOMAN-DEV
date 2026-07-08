@@ -202,6 +202,14 @@ class WGT_Invoice {
 			<p>
 				<?php echo esc_html( $order->get_formatted_billing_full_name() ); ?><br/>
 				<?php echo wp_kses_post( $order->get_formatted_billing_address() ); ?>
+				<?php if ( 'yes' === $order->get_meta( '_billing_is_business' ) ) : ?>
+					<?php if ( $order->get_billing_company() ) : ?>
+						<br/><?php echo esc_html__( 'Company:', 'wcfm-gst-tcs' ) . ' ' . esc_html( $order->get_billing_company() ); ?>
+					<?php endif; ?>
+					<?php if ( $order->get_meta( '_billing_gstin' ) ) : ?>
+						<br/><?php echo esc_html__( 'Buyer GSTIN:', 'wcfm-gst-tcs' ) . ' ' . esc_html( $order->get_meta( '_billing_gstin' ) ); ?>
+					<?php endif; ?>
+				<?php endif; ?>
 			</p>
 
 			<?php foreach ( $totals as $vendor_id => $t ) : ?>

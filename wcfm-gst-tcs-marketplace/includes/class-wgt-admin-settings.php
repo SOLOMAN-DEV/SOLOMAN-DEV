@@ -42,6 +42,8 @@ class WGT_Admin_Settings {
 			'invoice_prefix'     => 'INV-',
 			'default_gst_rate'   => '',
 			'hsn_mandatory'      => 'no',
+			'enable_b2b'         => 'yes',
+			'require_gstin_for_business' => 'yes',
 		);
 		return wp_parse_args( get_option( 'wgt_settings', array() ), $defaults );
 	}
@@ -72,6 +74,8 @@ class WGT_Admin_Settings {
 			'invoice_prefix'     => isset( $_POST['invoice_prefix'] ) ? sanitize_text_field( wp_unslash( $_POST['invoice_prefix'] ) ) : 'INV-',
 			'default_gst_rate'   => isset( $_POST['default_gst_rate'] ) ? wc_format_decimal( sanitize_text_field( wp_unslash( $_POST['default_gst_rate'] ) ) ) : '',
 			'hsn_mandatory'      => isset( $_POST['hsn_mandatory'] ) ? 'yes' : 'no',
+			'enable_b2b'         => isset( $_POST['enable_b2b'] ) ? 'yes' : 'no',
+			'require_gstin_for_business' => isset( $_POST['require_gstin_for_business'] ) ? 'yes' : 'no',
 		);
 
 		if ( $gstin ) {
@@ -153,6 +157,14 @@ class WGT_Admin_Settings {
 					<tr>
 						<th scope="row"><?php esc_html_e( 'Require HSN/SAC code', 'wcfm-gst-tcs' ); ?></th>
 						<td><label><input type="checkbox" name="hsn_mandatory" value="1" <?php checked( $settings['hsn_mandatory'], 'yes' ); ?> /> <?php esc_html_e( 'Block vendors from publishing a product without an HSN/SAC code', 'wcfm-gst-tcs' ); ?></label></td>
+					</tr>
+					<tr>
+						<th scope="row"><?php esc_html_e( 'Allow B2B purchases', 'wcfm-gst-tcs' ); ?></th>
+						<td><label><input type="checkbox" name="enable_b2b" value="1" <?php checked( $settings['enable_b2b'], 'yes' ); ?> /> <?php esc_html_e( 'Show a "This is a business purchase" option at checkout so customers can add their Company Name and GSTIN for a GST invoice', 'wcfm-gst-tcs' ); ?></label></td>
+					</tr>
+					<tr>
+						<th scope="row"><?php esc_html_e( 'Require GSTIN for business purchases', 'wcfm-gst-tcs' ); ?></th>
+						<td><label><input type="checkbox" name="require_gstin_for_business" value="1" <?php checked( $settings['require_gstin_for_business'], 'yes' ); ?> /> <?php esc_html_e( 'Block checkout unless a valid GSTIN and Company Name are entered when the business purchase option is ticked', 'wcfm-gst-tcs' ); ?></label></td>
 					</tr>
 				</table>
 				<?php submit_button( __( 'Save Settings', 'wcfm-gst-tcs' ) ); ?>

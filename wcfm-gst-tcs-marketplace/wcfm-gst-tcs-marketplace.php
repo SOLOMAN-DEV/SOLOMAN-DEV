@@ -63,6 +63,7 @@ final class WCFM_GST_TCS_Plugin {
 		WGT_Invoice::instance();
 		WGT_Admin_Reports::instance();
 		WGT_Vendor_Dashboard::instance();
+		WGT_B2B_Checkout::instance();
 
 		add_action( 'admin_enqueue_scripts', array( $this, 'enqueue_assets' ) );
 		add_action( 'wp_enqueue_scripts', array( $this, 'enqueue_assets' ) );
@@ -72,7 +73,7 @@ final class WCFM_GST_TCS_Plugin {
 		if ( is_admin() ) {
 			$load = true;
 		} else {
-			$load = is_account_page() || ( function_exists( 'wcfm_is_wcfm_page' ) && wcfm_is_wcfm_page() );
+			$load = is_account_page() || is_checkout() || ( function_exists( 'wcfm_is_wcfm_page' ) && wcfm_is_wcfm_page() );
 		}
 
 		if ( ! $load ) {
@@ -125,6 +126,7 @@ final class WCFM_GST_TCS_Plugin {
 		require_once WGT_PLUGIN_DIR . 'includes/class-wgt-csv-export.php';
 		require_once WGT_PLUGIN_DIR . 'includes/class-wgt-admin-reports.php';
 		require_once WGT_PLUGIN_DIR . 'includes/class-wgt-vendor-dashboard.php';
+		require_once WGT_PLUGIN_DIR . 'includes/class-wgt-b2b-checkout.php';
 	}
 }
 

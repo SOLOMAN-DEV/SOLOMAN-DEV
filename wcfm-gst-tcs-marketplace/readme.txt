@@ -25,6 +25,11 @@ to a WCFM Marketplace multivendor store.
 * Vendor GSTIN, PAN, legal name and state, captured from WCFM's vendor Settings > General
   tab (with a wp-admin user-profile fallback), with GSTIN format validation and automatic
   state detection from the GSTIN.
+* B2B checkout: a "This is a business purchase" option at checkout reveals Company Name
+  and GSTIN fields, saved to the order (HPOS-safe), shown in the admin order billing box,
+  customer order details/emails, and printed on the GST invoice, so business buyers get
+  what they need to claim input tax credit. Toggle on/off, and make GSTIN mandatory or
+  optional, from Settings > GST & TCS.
 * Automatic CGST+SGST (buyer and seller in the same state) or IGST (different states) tax
   calculation per order line, provisioned as native WooCommerce tax classes so the standard
   WooCommerce tax pipeline (cart, checkout, order storage, refunds, emails) handles the math,

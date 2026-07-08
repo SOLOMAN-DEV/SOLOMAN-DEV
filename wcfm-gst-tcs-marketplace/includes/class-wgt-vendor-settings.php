@@ -36,6 +36,7 @@ class WGT_Vendor_Settings {
 		add_action( 'edit_user_profile_update', array( $this, 'save_profile_fields' ) );
 
 		add_action( 'wp_ajax_wgt_validate_gstin', array( $this, 'ajax_validate_gstin' ) );
+		add_action( 'wp_ajax_nopriv_wgt_validate_gstin', array( $this, 'ajax_validate_gstin' ) );
 	}
 
 	public static function get_vendor_gst( $vendor_id ) {
