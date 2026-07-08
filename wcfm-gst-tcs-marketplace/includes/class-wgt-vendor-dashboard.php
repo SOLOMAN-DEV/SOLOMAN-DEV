@@ -104,7 +104,24 @@ class WGT_Vendor_Dashboard {
 		$date_from = isset( $_GET['wgt_date_from'] ) ? sanitize_text_field( wp_unslash( $_GET['wgt_date_from'] ) ) : $this->default_date_from();
 		$date_to   = isset( $_GET['wgt_date_to'] ) ? sanitize_text_field( wp_unslash( $_GET['wgt_date_to'] ) ) : gmdate( 'Y-m-d' );
 
-		$summary     = WGT_TCS_Engine::get_vendor_summary( $vendor_id, array( 'date_from' => $date_from, 'date_to' => $date_to ) );
+		// Sales/GST figures come from the vendor's actual orders (same source as the admin
+		// GST report), not the TCS ledger — the ledger only gets rows when GST-TCS
+		// collection is switched on, and a store can run GST without ever enabling TCS.
+		$sales_by_vendor = WGT_Admin_Reports::gather_gst_report( $date_from, $date_to, $vendor_id );
+		$sales           = isset( $sales_by_vendor[ $vendor_id ] ) ? $sales_by_vendor[ $vendor_id ] : array(
+			'order_count' => 0,
+			'net'         => 0.0,
+			'gst'         => 0.0,
+			'cgst'        => 0.0,
+			'sgst'        => 0.0,
+			'igst'        => 0.0,
+		);
+
+		$tcs_enabled = 'yes' === WGT_Admin_Settings::get_settings()['enable_tcs'];
+		$tcs_summary = $tcs_enabled
+			? WGT_TCS_Engine::get_vendor_summary( $vendor_id, array( 'date_from' => $date_from, 'date_to' => $date_to ) )
+			: array();
+
 		$gst         = WGT_Vendor_Settings::get_vendor_gst( $vendor_id );
 		$missing_hsn = class_exists( 'WGT_Product_Fields' ) ? WGT_Product_Fields::count_missing_hsn( $vendor_id ) : 0;
 
@@ -134,29 +151,42 @@ class WGT_Vendor_Dashboard {
 				<button type="submit"><?php esc_html_e( 'Filter', 'wcfm-gst-tcs' ); ?></button>
 			</form>
 
-			<h3><?php esc_html_e( 'Summary', 'wcfm-gst-tcs' ); ?></h3>
+			<h3><?php esc_html_e( 'Sales Summary', 'wcfm-gst-tcs' ); ?></h3>
 			<table class="shop_table">
 				<tbody>
-					<tr><th><?php esc_html_e( 'Orders', 'wcfm-gst-tcs' ); ?></th><td><?php echo esc_html( $summary['order_count'] ); ?></td></tr>
-					<tr><th><?php esc_html_e( 'Net Taxable Value', 'wcfm-gst-tcs' ); ?></th><td><?php echo wp_kses_post( wc_price( $summary['net_taxable_value'] ) ); ?></td></tr>
-					<tr><th><?php esc_html_e( 'GST Collected', 'wcfm-gst-tcs' ); ?></th><td><?php echo wp_kses_post( wc_price( $summary['gst_amount'] ) ); ?></td></tr>
-					<tr><th><?php esc_html_e( 'CGST TCS Deducted', 'wcfm-gst-tcs' ); ?></th><td><?php echo wp_kses_post( wc_price( $summary['cgst_tcs'] ) ); ?></td></tr>
-					<tr><th><?php esc_html_e( 'SGST TCS Deducted', 'wcfm-gst-tcs' ); ?></th><td><?php echo wp_kses_post( wc_price( $summary['sgst_tcs'] ) ); ?></td></tr>
-					<tr><th><?php esc_html_e( 'IGST TCS Deducted', 'wcfm-gst-tcs' ); ?></th><td><?php echo wp_kses_post( wc_price( $summary['igst_tcs'] ) ); ?></td></tr>
-					<tr><th><strong><?php esc_html_e( 'Total TCS Deducted', 'wcfm-gst-tcs' ); ?></strong></th><td><strong><?php echo wp_kses_post( wc_price( $summary['tcs_amount'] ) ); ?></strong></td></tr>
+					<tr><th><?php esc_html_e( 'Orders', 'wcfm-gst-tcs' ); ?></th><td><?php echo esc_html( $sales['order_count'] ); ?></td></tr>
+					<tr><th><?php esc_html_e( 'Net Taxable Value', 'wcfm-gst-tcs' ); ?></th><td><?php echo wp_kses_post( wc_price( $sales['net'] ) ); ?></td></tr>
+					<tr><th><?php esc_html_e( 'GST Collected', 'wcfm-gst-tcs' ); ?></th><td><?php echo wp_kses_post( wc_price( $sales['gst'] ) ); ?></td></tr>
+					<tr><th><?php esc_html_e( 'CGST', 'wcfm-gst-tcs' ); ?></th><td><?php echo wp_kses_post( wc_price( $sales['cgst'] ) ); ?></td></tr>
+					<tr><th><?php esc_html_e( 'SGST', 'wcfm-gst-tcs' ); ?></th><td><?php echo wp_kses_post( wc_price( $sales['sgst'] ) ); ?></td></tr>
+					<tr><th><?php esc_html_e( 'IGST', 'wcfm-gst-tcs' ); ?></th><td><?php echo wp_kses_post( wc_price( $sales['igst'] ) ); ?></td></tr>
 				</tbody>
 			</table>
+
+			<?php if ( $tcs_enabled ) : ?>
+				<h3><?php esc_html_e( 'GST-TCS Deducted', 'wcfm-gst-tcs' ); ?></h3>
+				<table class="shop_table">
+					<tbody>
+						<tr><th><?php esc_html_e( 'CGST TCS', 'wcfm-gst-tcs' ); ?></th><td><?php echo wp_kses_post( wc_price( $tcs_summary['cgst_tcs'] ) ); ?></td></tr>
+						<tr><th><?php esc_html_e( 'SGST TCS', 'wcfm-gst-tcs' ); ?></th><td><?php echo wp_kses_post( wc_price( $tcs_summary['sgst_tcs'] ) ); ?></td></tr>
+						<tr><th><?php esc_html_e( 'IGST TCS', 'wcfm-gst-tcs' ); ?></th><td><?php echo wp_kses_post( wc_price( $tcs_summary['igst_tcs'] ) ); ?></td></tr>
+						<tr><th><strong><?php esc_html_e( 'Total TCS Deducted', 'wcfm-gst-tcs' ); ?></strong></th><td><strong><?php echo wp_kses_post( wc_price( $tcs_summary['tcs_amount'] ) ); ?></strong></td></tr>
+					</tbody>
+				</table>
+			<?php endif; ?>
 
 			<h3><?php esc_html_e( 'Download Reports', 'wcfm-gst-tcs' ); ?></h3>
 			<p class="description"><?php esc_html_e( 'Reports cover the date range selected above.', 'wcfm-gst-tcs' ); ?></p>
 
-			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="display:inline-block;margin-right:10px;">
-				<input type="hidden" name="action" value="wgt_export_vendor_tcs" />
-				<input type="hidden" name="date_from" value="<?php echo esc_attr( $date_from ); ?>" />
-				<input type="hidden" name="date_to" value="<?php echo esc_attr( $date_to ); ?>" />
-				<?php wp_nonce_field( 'wgt_export_vendor_tcs' ); ?>
-				<button type="submit" class="button"><?php esc_html_e( 'Summary Report (CSV)', 'wcfm-gst-tcs' ); ?></button>
-			</form>
+			<?php if ( $tcs_enabled ) : ?>
+				<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="display:inline-block;margin-right:10px;">
+					<input type="hidden" name="action" value="wgt_export_vendor_tcs" />
+					<input type="hidden" name="date_from" value="<?php echo esc_attr( $date_from ); ?>" />
+					<input type="hidden" name="date_to" value="<?php echo esc_attr( $date_to ); ?>" />
+					<?php wp_nonce_field( 'wgt_export_vendor_tcs' ); ?>
+					<button type="submit" class="button"><?php esc_html_e( 'TCS Ledger Report (CSV)', 'wcfm-gst-tcs' ); ?></button>
+				</form>
+			<?php endif; ?>
 
 			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="display:inline-block;">
 				<input type="hidden" name="action" value="wgt_export_vendor_invoices" />

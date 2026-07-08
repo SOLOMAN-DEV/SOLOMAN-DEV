@@ -6,7 +6,7 @@ Tested up to: 6.7
 Requires PHP: 7.4
 WC requires at least: 6.0
 WC tested up to: 9.5
-Stable tag: 1.3.0
+Stable tag: 1.3.1
 License: GPLv2 or later
 
 Adds India GST (CGST/SGST/IGST) tax calculation and GST-TCS (Section 52, CGST Act) compliance
@@ -97,6 +97,13 @@ to a WCFM Marketplace multivendor store.
   include PHPUnit.
 
 == Changelog ==
+
+= 1.3.1 =
+* Fixed the vendor "GST & TCS" tab showing 0.00 for Net Taxable Value/GST Collected whenever
+  GST-TCS collection was switched off — those figures were being read from the TCS ledger,
+  which only gets rows when TCS is enabled, even though GST itself may still be calculated
+  and charged. Sales/GST figures now come from the vendor's actual orders directly; the
+  TCS-deducted figures and TCS ledger CSV only appear when TCS collection is on.
 
 = 1.3.0 =
 * Vendor "GST & TCS" account tab now uses a From/To date-range filter (replacing the old
