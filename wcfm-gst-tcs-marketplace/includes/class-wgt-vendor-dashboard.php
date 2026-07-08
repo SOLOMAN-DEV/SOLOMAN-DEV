@@ -195,7 +195,7 @@ class WGT_Vendor_Dashboard {
 				<?php wp_nonce_field( 'wgt_export_vendor_invoices' ); ?>
 				<button type="submit" class="button"><?php esc_html_e( 'Detailed Invoice Report (CSV)', 'wcfm-gst-tcs' ); ?></button>
 			</form>
-			<p class="description"><?php esc_html_e( 'The detailed report lists every order line item — HSN/SAC code, taxable value, CGST/SGST/IGST and buyer details for business purchases — for your own bookkeeping or your accountant.', 'wcfm-gst-tcs' ); ?></p>
+			<p class="description"><?php esc_html_e( 'The detailed report lists every order line item with full order details — customer, addresses, payment method, product, quantity, pricing, HSN/SAC code, taxable value, CGST/SGST/IGST and buyer details for business purchases — for your own bookkeeping or your accountant.', 'wcfm-gst-tcs' ); ?></p>
 		</div>
 		<?php
 		return ob_get_clean();
@@ -273,7 +273,7 @@ class WGT_Vendor_Dashboard {
 
 		WGT_CSV_Export::stream(
 			'my-invoice-report-' . $date_from . '-to-' . $date_to,
-			array( 'Vendor', 'Vendor GSTIN', 'Order ID', 'Invoice Date', 'Type', 'Buyer Name/Company', 'Buyer GSTIN', 'Place of Supply', 'HSN/SAC', 'Taxable Value', 'GST Rate', 'CGST', 'SGST', 'IGST', 'Invoice Value' ),
+			WGT_Admin_Reports::gstr1_headers(),
 			$rows
 		);
 	}

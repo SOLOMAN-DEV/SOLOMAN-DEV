@@ -6,7 +6,7 @@ Tested up to: 6.7
 Requires PHP: 7.4
 WC requires at least: 6.0
 WC tested up to: 9.5
-Stable tag: 1.4.0
+Stable tag: 1.4.1
 License: GPLv2 or later
 
 Adds India GST (CGST/SGST/IGST) tax calculation and GST-TCS (Section 52, CGST Act) compliance
@@ -41,8 +41,10 @@ to a WCFM Marketplace multivendor store.
   vendor filterable, with CSV export.
 * A vendor-facing "GST & TCS" tab under My Account, date-range filterable, with two CSV
   downloads: a summary report (orders, net taxable value, GST collected, TCS deducted) and a
-  detailed invoice-level report (every order line: HSN, taxable value, CGST/SGST/IGST, buyer
-  name/GSTIN for business purchases) for the vendor's own bookkeeping/accountant — plus a
+  detailed sales report (every order line, with full order details — customer name/email/
+  phone, billing/shipping address, payment method, order status, product/SKU, quantity,
+  pricing, subtotal/discount/shipping/order total — plus HSN, taxable value, CGST/SGST/IGST
+  and buyer GSTIN for business purchases) for the vendor's own bookkeeping/accountant — plus a
   `[wgt_vendor_gst_report]` shortcode for custom placement. Large date ranges queue in the
   background and email a download link, same as the admin exports.
 * A printable GST invoice per order (HSN, per-vendor tax breakup, GSTIN), viewable in the
@@ -50,10 +52,12 @@ to a WCFM Marketplace multivendor store.
 * Manual e-invoice fields (IRN, Ack No, Ack Date, QR text) per vendor per order, for stores
   where a vendor is above the e-invoicing turnover threshold and generates these on the govt
   e-invoice portal — recorded here and printed on the invoice, not auto-generated.
-* A GSTR-1 style invoice-level CSV export (one row per order line: vendor, buyer GSTIN if a
-  business purchase, place of supply, HSN, taxable value, CGST/SGST/IGST) to help vendors/CAs
-  populate their own GSTR-1 B2B/B2CS filing. This is a convenience export, not the GSTN
-  portal's JSON upload format.
+* A GSTR-1 style invoice-level CSV export doubling as a full sales report (one row per order
+  line: order status, payment method, customer name/email/phone, billing/shipping address,
+  product/SKU, quantity, pricing, vendor, buyer GSTIN if a business purchase, place of
+  supply, HSN, taxable value, CGST/SGST/IGST, and order subtotal/discount/shipping/total) to
+  help vendors/CAs populate their own GSTR-1 B2B/B2CS filing as well as reconcile sales. This
+  is a convenience export, not the GSTN portal's JSON upload format.
 * A "Compliance check" panel on Settings > GST & TCS flagging vendors missing a GSTIN and
   published products missing an HSN/SAC code, plus the same nudge on the vendor's own
   GST & TCS account tab.
@@ -102,6 +106,14 @@ to a WCFM Marketplace multivendor store.
   include PHPUnit.
 
 == Changelog ==
+
+= 1.4.1 =
+* The detailed/GSTR-1 sales report (admin export, vendor download, and monthly email
+  attachment) now includes full order details, not just tax figures: order status, payment
+  method, customer name/email/phone, billing and shipping address, product name/SKU,
+  quantity, unit price, item subtotal, and order subtotal/discount/shipping/total — alongside
+  the existing vendor/GST/tax-split columns. All three CSV outputs share one column
+  definition so they can't drift out of sync with each other.
 
 = 1.4.0 =
 * Automated monthly vendor email: sales & GST summary + detailed invoice CSV for the previous

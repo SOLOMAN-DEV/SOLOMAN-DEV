@@ -184,7 +184,7 @@ class WGT_Monthly_Email {
 		}
 
 		fwrite( $fh, "\xEF\xBB\xBF" ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fwrite
-		fputcsv( $fh, array( 'Vendor', 'Vendor GSTIN', 'Order ID', 'Invoice Date', 'Type', 'Buyer Name/Company', 'Buyer GSTIN', 'Place of Supply', 'HSN/SAC', 'Taxable Value', 'GST Rate', 'CGST', 'SGST', 'IGST', 'Invoice Value' ) );
+		fputcsv( $fh, WGT_Admin_Reports::gstr1_headers() );
 		foreach ( $rows as $row ) {
 			fputcsv( $fh, $row );
 		}
@@ -224,7 +224,7 @@ class WGT_Monthly_Email {
 		}
 
 		if ( $attachment_path ) {
-			$body .= __( 'A detailed line-item invoice report (HSN/SAC, taxable value, tax split, buyer details for business purchases) is attached as a CSV for your records.', 'wcfm-gst-tcs' ) . "\n\n";
+			$body .= __( 'A detailed sales report is attached as a CSV — full order details (customer, addresses, payment method, product, quantity, pricing) plus HSN/SAC, taxable value, tax split, and buyer details for business purchases.', 'wcfm-gst-tcs' ) . "\n\n";
 		} else {
 			$body .= __( 'No orders were recorded for you in this period.', 'wcfm-gst-tcs' ) . "\n\n";
 		}

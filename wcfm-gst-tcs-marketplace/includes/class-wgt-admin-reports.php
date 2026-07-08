@@ -414,16 +414,48 @@ class WGT_Admin_Reports {
 	 * hand or via their own filing tool. This is a convenience export, not the GSTN
 	 * portal's JSON upload format.
 	 */
+	/**
+	 * Column headers for gather_gstr1_rows(), kept alongside it so every caller
+	 * (admin export, vendor export, monthly email) stays in sync with the row shape.
+	 */
+	public static function gstr1_headers() {
+		return array(
+			'Order ID', 'Order Date', 'Order Status', 'Payment Method',
+			'Vendor', 'Vendor GSTIN', 'Type',
+			'Customer Name', 'Customer Email', 'Customer Phone',
+			'Billing Address', 'Shipping Address',
+			'Buyer Company', 'Buyer GSTIN', 'Place of Supply',
+			'Product Name', 'SKU', 'HSN/SAC', 'Quantity', 'Unit Price',
+			'Item Subtotal', 'Taxable Value', 'GST Rate', 'CGST', 'SGST', 'IGST', 'Line Total (Incl. Tax)',
+			'Order Subtotal', 'Order Discount', 'Order Shipping', 'Order Total',
+		);
+	}
+
+	/**
+	 * One row per order line item, with full order/customer/product context — not just
+	 * the tax figures — so this doubles as a complete sales report, not only a GST filing
+	 * aid. Order-level fields (customer, addresses, totals) repeat on every item row of
+	 * that order, which is the normal shape for a flat per-line-item export.
+	 */
 	public static function gather_gstr1_rows( $date_from, $date_to, $vendor_id = 0 ) {
 		$states = WGT_States::get_indian_states();
 		$rows   = array();
 
 		foreach ( self::iterate_orders( $date_from, $date_to ) as $order ) {
-			$is_b2b       = 'yes' === $order->get_meta( '_billing_is_business' );
-			$buyer_gstin  = $is_b2b ? $order->get_meta( '_billing_gstin' ) : '';
-			$buyer_name   = $is_b2b && $order->get_billing_company() ? $order->get_billing_company() : $order->get_formatted_billing_full_name();
-			$buyer_state  = $order->get_billing_state();
+			$is_b2b          = 'yes' === $order->get_meta( '_billing_is_business' );
+			$buyer_gstin     = $is_b2b ? $order->get_meta( '_billing_gstin' ) : '';
+			$buyer_company   = $is_b2b ? $order->get_billing_company() : '';
+			$buyer_state     = $order->get_billing_state();
 			$place_of_supply = isset( $states[ $buyer_state ] ) ? $states[ $buyer_state ] : $buyer_state;
+
+			$customer_name    = $order->get_formatted_billing_full_name();
+			$customer_email   = $order->get_billing_email();
+			$customer_phone   = $order->get_billing_phone();
+			$billing_address  = $order->get_formatted_billing_address( '' );
+			$shipping_address = $order->get_formatted_shipping_address( '' );
+			$payment_method   = $order->get_payment_method_title();
+			$order_status     = wc_get_order_status_name( $order->get_status() );
+			$order_date       = $order->get_date_created() ? $order->get_date_created()->date( 'Y-m-d H:i:s' ) : '';
 
 			foreach ( $order->get_items() as $item ) {
 				$v = $item->get_meta( '_wgt_vendor_id' );
@@ -443,24 +475,46 @@ class WGT_Admin_Reports {
 				$sgst  = $split['sgst'];
 				$igst  = $split['igst'];
 
-				$vendor_gst = WGT_Vendor_Settings::get_vendor_gst( $v );
+				$vendor_gst    = WGT_Vendor_Settings::get_vendor_gst( $v );
+				$product       = $item->get_product();
+				$sku           = $product ? $product->get_sku() : '';
+				$qty           = $item->get_quantity();
+				$item_total    = (float) $item->get_total();
+				$item_subtotal = (float) $item->get_subtotal();
+				$unit_price    = $qty ? round( $item_total / $qty, 2 ) : 0;
 
 				$rows[] = array(
+					$order->get_id(),
+					$order_date,
+					$order_status,
+					$payment_method,
 					self::vendor_label( $v ),
 					$vendor_gst['gstin'],
-					$order->get_id(),
-					$order->get_date_created() ? $order->get_date_created()->date( 'Y-m-d' ) : '',
 					$is_b2b ? 'B2B' : 'B2C',
-					$buyer_name,
+					$customer_name,
+					$customer_email,
+					$customer_phone,
+					$billing_address,
+					$shipping_address,
+					$buyer_company,
 					$buyer_gstin,
 					$place_of_supply,
+					$item->get_name(),
+					$sku,
 					$item->get_meta( '_wgt_hsn_code' ),
-					number_format( (float) $item->get_total(), 2, '.', '' ),
+					$qty,
+					number_format( $unit_price, 2, '.', '' ),
+					number_format( $item_subtotal, 2, '.', '' ),
+					number_format( $item_total, 2, '.', '' ),
 					$item->get_meta( '_wgt_gst_rate' ),
 					number_format( $cgst, 2, '.', '' ),
 					number_format( $sgst, 2, '.', '' ),
 					number_format( $igst, 2, '.', '' ),
-					number_format( (float) $item->get_total() + $cgst + $sgst + $igst, 2, '.', '' ),
+					number_format( $item_total + $cgst + $sgst + $igst, 2, '.', '' ),
+					number_format( (float) $order->get_subtotal(), 2, '.', '' ),
+					number_format( (float) $order->get_total_discount(), 2, '.', '' ),
+					number_format( (float) $order->get_shipping_total(), 2, '.', '' ),
+					number_format( (float) $order->get_total(), 2, '.', '' ),
 				);
 			}
 		}
@@ -477,7 +531,7 @@ class WGT_Admin_Reports {
 		?>
 		<div class="wrap wgt-admin-wrap">
 			<h1><?php esc_html_e( 'GSTR-1 Style Invoice Export', 'wcfm-gst-tcs' ); ?></h1>
-			<p><?php esc_html_e( 'One row per order line item — vendor, buyer GSTIN (if a business purchase), place of supply, HSN and the tax split — for vendors/CAs to populate GSTR-1\'s B2B and B2CS sections. This is a convenience export, not the GSTN portal\'s JSON upload format.', 'wcfm-gst-tcs' ); ?></p>
+			<p><?php esc_html_e( 'One row per order line item — full order details (customer, addresses, payment method, product, quantity, pricing) plus vendor, buyer GSTIN (if a business purchase), place of supply, HSN and the tax split — a complete sales report as well as a GSTR-1 filing aid. This is a convenience export, not the GSTN portal\'s JSON upload format.', 'wcfm-gst-tcs' ); ?></p>
 
 			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
 				<input type="hidden" name="action" value="wgt_export_gstr1" />
@@ -510,7 +564,7 @@ class WGT_Admin_Reports {
 
 		WGT_CSV_Export::stream(
 			'gstr1-export-' . $date_from . '-to-' . $date_to,
-			array( 'Vendor', 'Vendor GSTIN', 'Order ID', 'Invoice Date', 'Type', 'Buyer Name/Company', 'Buyer GSTIN', 'Place of Supply', 'HSN/SAC', 'Taxable Value', 'GST Rate', 'CGST', 'SGST', 'IGST', 'Invoice Value' ),
+			self::gstr1_headers(),
 			$rows
 		);
 	}
