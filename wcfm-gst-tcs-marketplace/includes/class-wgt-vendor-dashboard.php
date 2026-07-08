@@ -80,15 +80,29 @@ class WGT_Vendor_Dashboard {
 			return '<p>' . esc_html__( 'This report is only available to vendors.', 'wcfm-gst-tcs' ) . '</p>';
 		}
 
-		$fy      = isset( $_GET['wgt_fy'] ) ? sanitize_text_field( wp_unslash( $_GET['wgt_fy'] ) ) : '';
-		$summary = WGT_TCS_Engine::get_vendor_summary( $vendor_id, $fy );
-		$gst     = WGT_Vendor_Settings::get_vendor_gst( $vendor_id );
+		$fy         = isset( $_GET['wgt_fy'] ) ? sanitize_text_field( wp_unslash( $_GET['wgt_fy'] ) ) : '';
+		$summary    = WGT_TCS_Engine::get_vendor_summary( $vendor_id, $fy );
+		$gst        = WGT_Vendor_Settings::get_vendor_gst( $vendor_id );
+		$missing_hsn = class_exists( 'WGT_Product_Fields' ) ? WGT_Product_Fields::count_missing_hsn( $vendor_id ) : 0;
 
 		ob_start();
 		?>
 		<div class="wgt-vendor-report">
 			<?php if ( ! $gst['gstin'] ) : ?>
 				<p class="woocommerce-info"><?php esc_html_e( 'Add your GSTIN in Store Settings so orders are taxed correctly and your GST invoices show it.', 'wcfm-gst-tcs' ); ?></p>
+			<?php endif; ?>
+			<?php if ( $missing_hsn > 0 ) : ?>
+				<p class="woocommerce-info">
+					<?php
+					echo esc_html(
+						sprintf(
+							/* translators: %d: number of products missing an HSN/SAC code */
+							_n( '%d of your published products is missing an HSN/SAC code.', '%d of your published products are missing an HSN/SAC code.', $missing_hsn, 'wcfm-gst-tcs' ),
+							$missing_hsn
+						)
+					);
+					?>
+				</p>
 			<?php endif; ?>
 
 			<form method="get">

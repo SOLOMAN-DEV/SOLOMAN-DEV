@@ -37,10 +37,40 @@ class WGT_Product_Fields {
 		// Admin products list: HSN + GST rate column.
 		add_filter( 'manage_edit-product_columns', array( $this, 'add_product_column' ) );
 		add_action( 'manage_product_posts_custom_column', array( $this, 'render_product_column' ), 10, 2 );
+
+		// Blocks publishing without an HSN/SAC code when Settings > GST & TCS requires one,
+		// covering both the WCFM frontend form and wp-admin (both post 'wgt_hsn_code').
+		add_filter( 'wp_insert_post_data', array( $this, 'enforce_hsn_mandatory' ), 10, 2 );
+		add_filter( 'redirect_post_location', array( $this, 'add_hsn_error_query_arg' ) );
+		add_action( 'admin_notices', array( $this, 'render_hsn_error_notice' ) );
 	}
 
 	public static function get_hsn( $product_id ) {
 		return get_post_meta( $product_id, self::HSN_META, true );
+	}
+
+	/**
+	 * @param int $vendor_id Pass 0 for a store-wide count across all vendors.
+	 */
+	public static function count_missing_hsn( $vendor_id = 0 ) {
+		global $wpdb;
+
+		$author_clause = '';
+		$args          = array();
+		if ( $vendor_id ) {
+			$author_clause = 'AND p.post_author = %d';
+			$args[]        = $vendor_id;
+		}
+
+		$sql = "SELECT COUNT(*) FROM {$wpdb->posts} p
+			WHERE p.post_type = 'product' AND p.post_status = 'publish' {$author_clause}
+			AND NOT EXISTS (
+				SELECT 1 FROM {$wpdb->postmeta} pm
+				WHERE pm.post_id = p.ID AND pm.meta_key = %s AND pm.meta_value != ''
+			)";
+		$args[] = self::HSN_META;
+
+		return (int) $wpdb->get_var( $wpdb->prepare( $sql, $args ) ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
 	}
 
 	public static function get_gst_rate( $product_id ) {
@@ -173,5 +203,60 @@ class WGT_Product_Fields {
 		}
 
 		echo esc_html( $hsn ? $hsn : '—' ) . ' / ' . esc_html( '' !== $rate ? $rate . '%' : '—' );
+	}
+
+	/**
+	 * Forces a product back to 'pending' instead of publishing if it's missing an
+	 * HSN/SAC code and Settings > GST & TCS > "Require HSN/SAC code" is on. Only acts
+	 * when 'wgt_hsn_code' was actually part of the submitted form (our own product-manage
+	 * forms), so REST/bulk/programmatic saves that don't touch this field are left alone.
+	 */
+	public function enforce_hsn_mandatory( $data, $postarr ) {
+		if ( ! isset( $data['post_type'] ) || 'product' !== $data['post_type'] ) {
+			return $data;
+		}
+		if ( 'publish' !== $data['post_status'] ) {
+			return $data;
+		}
+		if ( ! isset( $_POST['wgt_hsn_code'] ) ) {
+			return $data;
+		}
+
+		$settings = WGT_Admin_Settings::get_settings();
+		if ( 'yes' !== $settings['hsn_mandatory'] ) {
+			return $data;
+		}
+
+		if ( '' === $this->sanitize_hsn( $_POST['wgt_hsn_code'] ) ) {
+			$data['post_status'] = 'pending';
+			if ( ! empty( $postarr['ID'] ) ) {
+				set_transient( 'wgt_hsn_blocked_' . $postarr['ID'], 1, MINUTE_IN_SECONDS );
+			}
+		}
+
+		return $data;
+	}
+
+	public function add_hsn_error_query_arg( $location ) {
+		// This filter runs while wp-admin/post.php is still building the redirect for the
+		// POST request that just saved the product, so the post ID comes from the submitted
+		// form field rather than the query string of the (not yet loaded) redirect target.
+		$post_id = isset( $_POST['post_ID'] ) ? absint( $_POST['post_ID'] ) : 0;
+		if ( $post_id && get_transient( 'wgt_hsn_blocked_' . $post_id ) ) {
+			delete_transient( 'wgt_hsn_blocked_' . $post_id );
+			$location = add_query_arg( 'wgt_hsn_error', '1', $location );
+		}
+		return $location;
+	}
+
+	public function render_hsn_error_notice() {
+		if ( empty( $_GET['wgt_hsn_error'] ) ) {
+			return;
+		}
+		?>
+		<div class="notice notice-error is-dismissible">
+			<p><?php esc_html_e( 'This product was saved as Pending, not Published, because an HSN/SAC code is required (Settings > GST & TCS).', 'wcfm-gst-tcs' ); ?></p>
+		</div>
+		<?php
 	}
 }

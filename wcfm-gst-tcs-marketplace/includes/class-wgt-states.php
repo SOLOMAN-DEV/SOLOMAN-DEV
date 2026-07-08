@@ -41,12 +41,43 @@ class WGT_States {
 	}
 
 	/**
-	 * Structural GSTIN validation (15 chars: state code + PAN + entity code + 'Z' + checksum).
-	 * This checks format only, not the checksum digit itself.
+	 * Full GSTIN validation: structure (15 chars: state code + PAN + entity code + 'Z' +
+	 * checksum) plus the actual mod-36 checksum digit, so an obviously fabricated GSTIN
+	 * (right shape, wrong check digit) is rejected rather than just format-matched.
 	 */
 	public static function is_valid_gstin( $gstin ) {
 		$gstin = strtoupper( trim( (string) $gstin ) );
-		return (bool) preg_match( '/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/', $gstin );
+
+		if ( ! preg_match( '/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/', $gstin ) ) {
+			return false;
+		}
+
+		return self::checksum_char( substr( $gstin, 0, 14 ) ) === substr( $gstin, 14, 1 );
+	}
+
+	/**
+	 * Computes the GSTIN check digit (mod-36) for the first 14 characters.
+	 */
+	private static function checksum_char( $first_14 ) {
+		$code_points = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+		$mod         = 36;
+		$factor      = 2;
+		$sum         = 0;
+		$chars       = str_split( $first_14 );
+
+		for ( $i = count( $chars ) - 1; $i >= 0; $i-- ) {
+			$digit = strpos( $code_points, $chars[ $i ] );
+			if ( false === $digit ) {
+				return '';
+			}
+			$digit  = $digit * $factor;
+			$factor = ( 2 === $factor ) ? 1 : 2;
+			$digit  = intdiv( $digit, $mod ) + ( $digit % $mod );
+			$sum   += $digit;
+		}
+
+		$check = ( $mod - ( $sum % $mod ) ) % $mod;
+		return $code_points[ $check ];
 	}
 
 	public static function get_indian_states() {

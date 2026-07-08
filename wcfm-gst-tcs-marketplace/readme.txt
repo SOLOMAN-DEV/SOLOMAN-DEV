@@ -6,7 +6,7 @@ Tested up to: 6.7
 Requires PHP: 7.4
 WC requires at least: 6.0
 WC tested up to: 9.5
-Stable tag: 1.0.0
+Stable tag: 1.1.0
 License: GPLv2 or later
 
 Adds India GST (CGST/SGST/IGST) tax calculation and GST-TCS (Section 52, CGST Act) compliance
@@ -41,22 +41,52 @@ to a WCFM Marketplace multivendor store.
   vendor filterable, with CSV export.
 * A vendor-facing "GST & TCS" tab under My Account showing their own GST collected and TCS
   deducted, with CSV export, plus a `[wgt_vendor_gst_report]` shortcode for custom placement.
-* A simple printable GST invoice per order (HSN, per-vendor tax breakup, GSTIN) linked from
-  the order-received/order-details page.
+* A printable GST invoice per order (HSN, per-vendor tax breakup, GSTIN), viewable in the
+  browser or downloaded as a PDF, linked from the order-received/order-details page.
+* Manual e-invoice fields (IRN, Ack No, Ack Date, QR text) per vendor per order, for stores
+  where a vendor is above the e-invoicing turnover threshold and generates these on the govt
+  e-invoice portal — recorded here and printed on the invoice, not auto-generated.
+* A GSTR-1 style invoice-level CSV export (one row per order line: vendor, buyer GSTIN if a
+  business purchase, place of supply, HSN, taxable value, CGST/SGST/IGST) to help vendors/CAs
+  populate their own GSTR-1 B2B/B2CS filing. This is a convenience export, not the GSTN
+  portal's JSON upload format.
+* A "Compliance check" panel on Settings > GST & TCS flagging vendors missing a GSTIN and
+  published products missing an HSN/SAC code, plus the same nudge on the vendor's own
+  GST & TCS account tab.
+* HSN/SAC can be made mandatory to publish a product (Settings > GST & TCS), enforced for
+  both the WCFM frontend product form and wp-admin.
+* Partial refunds recompute each affected vendor's TCS ledger row from WooCommerce's own
+  per-item refunded amounts, instead of only reacting to a full order cancellation.
+* Declares WooCommerce High-Performance Order Storage (HPOS) compatibility.
 
 == Notes ==
 
 * This plugin computes and reports GST-TCS under GST law (Section 52, CGST Act, no minimum
   threshold). It does not implement Income Tax Act Section 52 TCS (0.1%/1% above the ₹5 lakh
   annual threshold) — that is a separate compliance requirement and out of scope here.
-* GSTIN validation checks structure only (state code + PAN pattern + entity/checksum
-  characters), not the real checksum digit or GSTN portal verification.
+* GSTIN validation checks structure and the real mod-36 check digit, which catches typos and
+  fabricated numbers, but does not verify against the GSTN portal that the GSTIN is actually
+  registered/active.
+* E-invoice IRN/Ack/QR fields are for recording what a vendor generated on the government
+  e-invoice portal; this plugin does not call the IRP/GSP API to generate an IRN itself.
 * Configure Settings > GST & TCS with your marketplace operator GSTIN/state before going live,
   and ask each vendor to fill in their GSTIN/state so tax is calculated correctly.
 * Always confirm the final GST/TCS treatment with a qualified CA before filing — this plugin
   automates the arithmetic, it isn't a substitute for professional tax advice.
+* Bundles dompdf (vendor/) for PDF invoice generation.
 
 == Changelog ==
+
+= 1.1.0 =
+* B2B checkout: buyer Company Name + GSTIN, shown on invoices/order details/admin.
+* PDF GST invoices (dompdf), alongside the existing print view.
+* GSTR-1 style invoice-level CSV export.
+* Manual e-invoice IRN/Ack/QR fields per vendor per order.
+* Real GSTIN mod-36 checksum validation (previously format-only).
+* HSN-mandatory enforcement extended to the WCFM frontend product form.
+* Partial refunds now proportionally adjust the TCS ledger.
+* Vendor/admin nudges for missing GSTIN or HSN.
+* Declared HPOS compatibility.
 
 = 1.0.0 =
 * Initial release.

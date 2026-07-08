@@ -2,8 +2,8 @@
 /**
  * Plugin Name: WCFM GST & TCS for Multivendor Marketplace
  * Plugin URI: https://example.com/wcfm-gst-tcs-marketplace
- * Description: Adds India GST (CGST/SGST/IGST) tax calculation and GST-TCS (Sec 52) compliance to a WCFM Marketplace multivendor store — per-product HSN/GST rates, vendor GSTIN capture, GST invoices, and GSTR-8 style TCS reports.
- * Version: 1.0.0
+ * Description: Adds India GST (CGST/SGST/IGST) tax calculation and GST-TCS (Sec 52) compliance to a WCFM Marketplace multivendor store — per-product HSN/GST rates, vendor GSTIN capture, B2B checkout, PDF GST invoices, and GSTR-1/GSTR-8 style reports.
+ * Version: 1.1.0
  * Author: Soloman Dev
  * Text Domain: wcfm-gst-tcs
  * Domain Path: /languages
@@ -17,7 +17,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'WGT_VERSION', '1.0.0' );
+define( 'WGT_VERSION', '1.1.0' );
 define( 'WGT_PLUGIN_FILE', __FILE__ );
 define( 'WGT_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'WGT_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
@@ -43,6 +43,13 @@ final class WCFM_GST_TCS_Plugin {
 		register_activation_hook( WGT_PLUGIN_FILE, array( 'WGT_Install', 'activate' ) );
 
 		add_action( 'plugins_loaded', array( $this, 'init' ), 20 );
+		add_action( 'before_woocommerce_init', array( $this, 'declare_hpos_compatibility' ) );
+	}
+
+	public function declare_hpos_compatibility() {
+		if ( class_exists( '\Automattic\WooCommerce\Utilities\FeaturesUtil' ) ) {
+			\Automattic\WooCommerce\Utilities\FeaturesUtil::declare_compatibility( 'custom_order_tables', WGT_PLUGIN_FILE, true );
+		}
 	}
 
 	public function init() {
@@ -115,6 +122,11 @@ final class WCFM_GST_TCS_Plugin {
 	}
 
 	private function includes() {
+		$autoload = WGT_PLUGIN_DIR . 'vendor/autoload.php';
+		if ( file_exists( $autoload ) && ! class_exists( 'Dompdf\\Dompdf' ) ) {
+			require_once $autoload;
+		}
+
 		require_once WGT_PLUGIN_DIR . 'includes/class-wgt-states.php';
 		require_once WGT_PLUGIN_DIR . 'includes/class-wgt-install.php';
 		require_once WGT_PLUGIN_DIR . 'includes/class-wgt-admin-settings.php';

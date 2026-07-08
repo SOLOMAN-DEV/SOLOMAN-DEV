@@ -18,11 +18,13 @@ class WGT_Admin_Reports {
 		add_action( 'admin_menu', array( $this, 'add_menu' ), 20 );
 		add_action( 'admin_post_wgt_export_gst_report', array( $this, 'export_gst_report' ) );
 		add_action( 'admin_post_wgt_export_tcs_report', array( $this, 'export_tcs_report' ) );
+		add_action( 'admin_post_wgt_export_gstr1', array( $this, 'export_gstr1_report' ) );
 	}
 
 	public function add_menu() {
 		add_submenu_page( 'wgt-settings', __( 'GST Report', 'wcfm-gst-tcs' ), __( 'GST Report', 'wcfm-gst-tcs' ), 'manage_woocommerce', 'wgt-gst-report', array( $this, 'render_gst_report' ) );
 		add_submenu_page( 'wgt-settings', __( 'TCS Report (GSTR-8)', 'wcfm-gst-tcs' ), __( 'TCS Report (GSTR-8)', 'wcfm-gst-tcs' ), 'manage_woocommerce', 'wgt-tcs-report', array( $this, 'render_tcs_report' ) );
+		add_submenu_page( 'wgt-settings', __( 'GSTR-1 Export', 'wcfm-gst-tcs' ), __( 'GSTR-1 Export', 'wcfm-gst-tcs' ), 'manage_woocommerce', 'wgt-gstr1-report', array( $this, 'render_gstr1_report' ) );
 	}
 
 	public static function vendor_label( $vendor_id ) {
@@ -337,6 +339,133 @@ class WGT_Admin_Reports {
 			'gstr8-tcs-report-' . $date_from . '-to-' . $date_to,
 			array( 'Order ID', 'Vendor', 'Vendor GSTIN', 'Order Date', 'Net Taxable Value', 'CGST TCS', 'SGST TCS', 'IGST TCS', 'Total TCS', 'Financial Year', 'Status' ),
 			$csv
+		);
+	}
+
+	/**
+	 * Invoice-level rows (one per order line item) with everything a vendor/CA needs to
+	 * populate GSTR-1's B2B (buyer GSTIN present) and B2CS (no buyer GSTIN) sections by
+	 * hand or via their own filing tool. This is a convenience export, not the GSTN
+	 * portal's JSON upload format.
+	 */
+	private function gather_gstr1_rows( $date_from, $date_to, $vendor_id = 0 ) {
+		$orders = wc_get_orders(
+			array(
+				'limit'        => -1,
+				'status'       => array( 'processing', 'completed' ),
+				'date_created' => $date_from . '...' . $date_to,
+				'return'       => 'objects',
+			)
+		);
+
+		$states = WGT_States::get_indian_states();
+		$rows   = array();
+
+		foreach ( $orders as $order ) {
+			$is_b2b       = 'yes' === $order->get_meta( '_billing_is_business' );
+			$buyer_gstin  = $is_b2b ? $order->get_meta( '_billing_gstin' ) : '';
+			$buyer_name   = $is_b2b && $order->get_billing_company() ? $order->get_billing_company() : $order->get_formatted_billing_full_name();
+			$buyer_state  = $order->get_billing_state();
+			$place_of_supply = isset( $states[ $buyer_state ] ) ? $states[ $buyer_state ] : $buyer_state;
+
+			foreach ( $order->get_items() as $item ) {
+				$v = $item->get_meta( '_wgt_vendor_id' );
+				if ( ! $v && function_exists( 'wcfm_get_vendor_id_by_post' ) ) {
+					$v = wcfm_get_vendor_id_by_post( $item->get_product_id() );
+				}
+				if ( ! $v ) {
+					continue;
+				}
+				$v = (int) $v;
+				if ( $vendor_id && $v !== $vendor_id ) {
+					continue;
+				}
+
+				$cgst = 0.0;
+				$sgst = 0.0;
+				$igst = 0.0;
+				$taxes = $item->get_taxes();
+				if ( ! empty( $taxes['total'] ) ) {
+					foreach ( $taxes['total'] as $rate_id => $amount ) {
+						if ( '' === $amount ) {
+							continue;
+						}
+						$label = wc_get_rate_label( $rate_id );
+						$amt   = (float) $amount;
+						if ( false !== stripos( $label, 'CGST' ) ) {
+							$cgst += $amt;
+						} elseif ( false !== stripos( $label, 'SGST' ) ) {
+							$sgst += $amt;
+						} elseif ( false !== stripos( $label, 'IGST' ) ) {
+							$igst += $amt;
+						}
+					}
+				}
+
+				$vendor_gst = WGT_Vendor_Settings::get_vendor_gst( $v );
+
+				$rows[] = array(
+					self::vendor_label( $v ),
+					$vendor_gst['gstin'],
+					$order->get_id(),
+					$order->get_date_created() ? $order->get_date_created()->date( 'Y-m-d' ) : '',
+					$is_b2b ? 'B2B' : 'B2C',
+					$buyer_name,
+					$buyer_gstin,
+					$place_of_supply,
+					$item->get_meta( '_wgt_hsn_code' ),
+					number_format( (float) $item->get_total(), 2, '.', '' ),
+					$item->get_meta( '_wgt_gst_rate' ),
+					number_format( $cgst, 2, '.', '' ),
+					number_format( $sgst, 2, '.', '' ),
+					number_format( $igst, 2, '.', '' ),
+					number_format( (float) $item->get_total() + $cgst + $sgst + $igst, 2, '.', '' ),
+				);
+			}
+		}
+
+		return $rows;
+	}
+
+	public function render_gstr1_report() {
+		if ( ! current_user_can( 'manage_woocommerce' ) ) {
+			return;
+		}
+
+		$filters = $this->get_filters();
+		?>
+		<div class="wrap wgt-admin-wrap">
+			<h1><?php esc_html_e( 'GSTR-1 Style Invoice Export', 'wcfm-gst-tcs' ); ?></h1>
+			<p><?php esc_html_e( 'One row per order line item — vendor, buyer GSTIN (if a business purchase), place of supply, HSN and the tax split — for vendors/CAs to populate GSTR-1\'s B2B and B2CS sections. This is a convenience export, not the GSTN portal\'s JSON upload format.', 'wcfm-gst-tcs' ); ?></p>
+
+			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+				<input type="hidden" name="action" value="wgt_export_gstr1" />
+				<?php wp_nonce_field( 'wgt_export_gstr1' ); ?>
+				<label><?php esc_html_e( 'From', 'wcfm-gst-tcs' ); ?> <input type="date" name="date_from" value="<?php echo esc_attr( $filters['date_from'] ); ?>" /></label>
+				<label><?php esc_html_e( 'To', 'wcfm-gst-tcs' ); ?> <input type="date" name="date_to" value="<?php echo esc_attr( $filters['date_to'] ); ?>" /></label>
+				<label><?php esc_html_e( 'Vendor ID', 'wcfm-gst-tcs' ); ?> <input type="number" name="vendor_id" value="<?php echo esc_attr( $filters['vendor_id'] ?: '' ); ?>" placeholder="<?php esc_attr_e( 'All', 'wcfm-gst-tcs' ); ?>" /></label>
+				<?php submit_button( __( 'Export CSV', 'wcfm-gst-tcs' ), 'primary', '', false ); ?>
+			</form>
+		</div>
+		<?php
+	}
+
+	public function export_gstr1_report() {
+		check_admin_referer( 'wgt_export_gstr1' );
+		if ( ! current_user_can( 'manage_woocommerce' ) ) {
+			wp_die( esc_html__( 'You do not have permission to do this.', 'wcfm-gst-tcs' ) );
+		}
+
+		$date_from = isset( $_POST['date_from'] ) ? sanitize_text_field( wp_unslash( $_POST['date_from'] ) ) : gmdate( 'Y-m-01' );
+		$date_to   = isset( $_POST['date_to'] ) ? sanitize_text_field( wp_unslash( $_POST['date_to'] ) ) : gmdate( 'Y-m-d' );
+		$vendor_id = isset( $_POST['vendor_id'] ) ? absint( $_POST['vendor_id'] ) : 0;
+
+		$rows = $this->gather_gstr1_rows( $date_from, $date_to, $vendor_id );
+
+		WGT_CSV_Export::stream(
+			'gstr1-export-' . $date_from . '-to-' . $date_to,
+			array( 'Vendor', 'Vendor GSTIN', 'Order ID', 'Invoice Date', 'Type', 'Buyer Name/Company', 'Buyer GSTIN', 'Place of Supply', 'HSN/SAC', 'Taxable Value', 'GST Rate', 'CGST', 'SGST', 'IGST', 'Invoice Value' ),
+			$rows
 		);
 	}
 }

@@ -102,6 +102,8 @@ class WGT_Admin_Settings {
 			<h1><?php esc_html_e( 'GST & TCS Settings', 'wcfm-gst-tcs' ); ?></h1>
 			<p><?php esc_html_e( 'Configure GST tax calculation and GST-TCS (Section 52) collection for your WCFM multivendor marketplace.', 'wcfm-gst-tcs' ); ?></p>
 
+			<?php $this->render_compliance_health(); ?>
+
 			<form method="post">
 				<?php wp_nonce_field( 'wgt_save_settings', 'wgt_settings_nonce' ); ?>
 				<table class="form-table" role="presentation">
@@ -169,6 +171,60 @@ class WGT_Admin_Settings {
 				</table>
 				<?php submit_button( __( 'Save Settings', 'wcfm-gst-tcs' ) ); ?>
 			</form>
+		</div>
+		<?php
+	}
+
+	private function render_compliance_health() {
+		$missing_hsn = class_exists( 'WGT_Product_Fields' ) ? WGT_Product_Fields::count_missing_hsn() : 0;
+
+		$vendor_ids    = array_unique(
+			array_merge(
+				get_users( array( 'role' => 'wcfm_vendor', 'fields' => 'ID' ) ),
+				get_users( array( 'role' => 'dc_vendor', 'fields' => 'ID' ) )
+			)
+		);
+		$missing_gstin = 0;
+		foreach ( $vendor_ids as $vendor_id ) {
+			$gst = WGT_Vendor_Settings::get_vendor_gst( $vendor_id );
+			if ( ! $gst['gstin'] ) {
+				++$missing_gstin;
+			}
+		}
+
+		if ( 0 === $missing_hsn && 0 === $missing_gstin ) {
+			return;
+		}
+		?>
+		<div class="notice notice-warning inline" style="padding:10px 12px;">
+			<p style="margin:.3em 0;"><strong><?php esc_html_e( 'Compliance check', 'wcfm-gst-tcs' ); ?></strong></p>
+			<?php if ( $missing_gstin > 0 ) : ?>
+				<p style="margin:.3em 0;">
+					<?php
+					echo esc_html(
+						sprintf(
+							/* translators: %d: number of vendors without a GSTIN on file */
+							_n( '%d vendor has not added a GSTIN.', '%d vendors have not added a GSTIN.', $missing_gstin, 'wcfm-gst-tcs' ),
+							$missing_gstin
+						)
+					);
+					?>
+				</p>
+			<?php endif; ?>
+			<?php if ( $missing_hsn > 0 ) : ?>
+				<p style="margin:.3em 0;">
+					<?php
+					echo esc_html(
+						sprintf(
+							/* translators: %d: number of published products missing an HSN/SAC code */
+							_n( '%d published product is missing an HSN/SAC code.', '%d published products are missing an HSN/SAC code.', $missing_hsn, 'wcfm-gst-tcs' ),
+							$missing_hsn
+						)
+					);
+					?>
+					<a href="<?php echo esc_url( admin_url( 'edit.php?post_type=product' ) ); ?>"><?php esc_html_e( 'Review products', 'wcfm-gst-tcs' ); ?></a>
+				</p>
+			<?php endif; ?>
 		</div>
 		<?php
 	}

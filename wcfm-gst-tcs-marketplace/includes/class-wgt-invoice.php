@@ -20,6 +20,8 @@ class WGT_Invoice {
 		return self::$instance;
 	}
 
+	const EINVOICE_META = '_wgt_einvoice';
+
 	private function __construct() {
 		add_filter( 'woocommerce_order_item_name', array( $this, 'append_hsn_to_item_name' ), 10, 2 );
 
@@ -28,9 +30,58 @@ class WGT_Invoice {
 		add_action( 'woocommerce_order_details_after_order_table', array( $this, 'render_invoice_link' ), 5 );
 
 		add_action( 'add_meta_boxes', array( $this, 'add_admin_meta_box' ) );
+		add_action( 'woocommerce_process_shop_order_meta', array( $this, 'save_einvoice_fields' ) );
 
 		add_action( 'init', array( $this, 'add_invoice_endpoint' ) );
 		add_action( 'template_redirect', array( $this, 'maybe_render_invoice' ) );
+	}
+
+	/**
+	 * E-invoicing (IRN/QR) applies to vendors above the government's e-invoicing
+	 * turnover threshold, generated on the govt e-invoice portal outside this plugin.
+	 * These fields just record what came back so it can be printed on the invoice.
+	 */
+	private function get_einvoice( $order, $vendor_id ) {
+		$all = $order->get_meta( self::EINVOICE_META );
+		$all = is_array( $all ) ? $all : array();
+		$defaults = array(
+			'irn'      => '',
+			'ack_no'   => '',
+			'ack_date' => '',
+			'qr'       => '',
+		);
+		return wp_parse_args( isset( $all[ $vendor_id ] ) ? $all[ $vendor_id ] : array(), $defaults );
+	}
+
+	public function save_einvoice_fields( $order_id ) {
+		if ( ! isset( $_POST['wgt_einvoice_nonce'] ) || ! wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['wgt_einvoice_nonce'] ) ), 'wgt_save_einvoice' ) ) {
+			return;
+		}
+		if ( ! current_user_can( 'manage_woocommerce' ) ) {
+			return;
+		}
+
+		$order = wc_get_order( $order_id );
+		if ( ! $order || empty( $_POST['wgt_einvoice'] ) || ! is_array( $_POST['wgt_einvoice'] ) ) {
+			return;
+		}
+
+		$all = array();
+		foreach ( wp_unslash( $_POST['wgt_einvoice'] ) as $vendor_id => $fields ) {
+			$vendor_id = absint( $vendor_id );
+			if ( ! $vendor_id || ! is_array( $fields ) ) {
+				continue;
+			}
+			$all[ $vendor_id ] = array(
+				'irn'      => isset( $fields['irn'] ) ? sanitize_text_field( $fields['irn'] ) : '',
+				'ack_no'   => isset( $fields['ack_no'] ) ? sanitize_text_field( $fields['ack_no'] ) : '',
+				'ack_date' => isset( $fields['ack_date'] ) ? sanitize_text_field( $fields['ack_date'] ) : '',
+				'qr'       => isset( $fields['qr'] ) ? sanitize_textarea_field( $fields['qr'] ) : '',
+			);
+		}
+
+		$order->update_meta_data( self::EINVOICE_META, $all );
+		$order->save();
 	}
 
 	public function append_hsn_to_item_name( $item_name, $item ) {
@@ -87,14 +138,17 @@ class WGT_Invoice {
 		if ( is_a( $order, 'WC_Order' ) === false ) {
 			return;
 		}
-		$url = add_query_arg(
-			array(
-				'wgt_invoice' => $order->get_id(),
-				'key'         => $order->get_order_key(),
-			),
-			home_url( '/' )
+		$args = array(
+			'wgt_invoice' => $order->get_id(),
+			'key'         => $order->get_order_key(),
 		);
-		echo '<p class="wgt-invoice-link"><a class="button" target="_blank" href="' . esc_url( $url ) . '">' . esc_html__( 'View / Print GST Invoice', 'wcfm-gst-tcs' ) . '</a></p>';
+		$view_url = add_query_arg( $args, home_url( '/' ) );
+		$pdf_url  = add_query_arg( array_merge( $args, array( 'format' => 'pdf' ) ), home_url( '/' ) );
+
+		echo '<p class="wgt-invoice-link">';
+		echo '<a class="button" target="_blank" href="' . esc_url( $view_url ) . '">' . esc_html__( 'View / Print GST Invoice', 'wcfm-gst-tcs' ) . '</a> ';
+		echo '<a class="button" href="' . esc_url( $pdf_url ) . '">' . esc_html__( 'Download PDF', 'wcfm-gst-tcs' ) . '</a>';
+		echo '</p>';
 	}
 
 	public function add_admin_meta_box() {
@@ -114,13 +168,23 @@ class WGT_Invoice {
 		}
 
 		$settings = WGT_Admin_Settings::get_settings();
+		wp_nonce_field( 'wgt_save_einvoice', 'wgt_einvoice_nonce' );
+
 		echo '<table class="wgt-order-summary">';
 		foreach ( $totals as $vendor_id => $t ) {
 			$tcs = round( $t['net'] * (float) $settings['tcs_rate'] / 100, 2 );
+			$ei  = $this->get_einvoice( $order, $vendor_id );
+
 			echo '<tr><th colspan="2">' . esc_html( WGT_Admin_Reports::vendor_label( $vendor_id ) ) . '</th></tr>';
 			echo '<tr><td>' . esc_html__( 'Net Taxable', 'wcfm-gst-tcs' ) . '</td><td>' . wc_price( $t['net'] ) . '</td></tr>'; // phpcs:ignore WordPress.Security.EscapeOutput
 			echo '<tr><td>' . esc_html__( 'GST', 'wcfm-gst-tcs' ) . '</td><td>' . wc_price( $t['gst'] ) . '</td></tr>'; // phpcs:ignore WordPress.Security.EscapeOutput
 			echo '<tr><td>' . esc_html__( 'Est. TCS', 'wcfm-gst-tcs' ) . '</td><td>' . wc_price( $tcs ) . '</td></tr>'; // phpcs:ignore WordPress.Security.EscapeOutput
+
+			echo '<tr><td colspan="2"><em>' . esc_html__( 'E-Invoice (optional, from GST e-invoice portal)', 'wcfm-gst-tcs' ) . '</em></td></tr>';
+			echo '<tr><td>' . esc_html__( 'IRN', 'wcfm-gst-tcs' ) . '</td><td><input type="text" style="width:100%" name="wgt_einvoice[' . esc_attr( $vendor_id ) . '][irn]" value="' . esc_attr( $ei['irn'] ) . '" /></td></tr>';
+			echo '<tr><td>' . esc_html__( 'Ack No', 'wcfm-gst-tcs' ) . '</td><td><input type="text" style="width:100%" name="wgt_einvoice[' . esc_attr( $vendor_id ) . '][ack_no]" value="' . esc_attr( $ei['ack_no'] ) . '" /></td></tr>';
+			echo '<tr><td>' . esc_html__( 'Ack Date', 'wcfm-gst-tcs' ) . '</td><td><input type="date" style="width:100%" name="wgt_einvoice[' . esc_attr( $vendor_id ) . '][ack_date]" value="' . esc_attr( $ei['ack_date'] ) . '" /></td></tr>';
+			echo '<tr><td>' . esc_html__( 'QR (text)', 'wcfm-gst-tcs' ) . '</td><td><textarea style="width:100%" rows="2" name="wgt_einvoice[' . esc_attr( $vendor_id ) . '][qr]">' . esc_textarea( $ei['qr'] ) . '</textarea></td></tr>';
 		}
 		echo '</table>';
 	}
@@ -146,8 +210,31 @@ class WGT_Invoice {
 			wp_die( esc_html__( 'You do not have permission to view this invoice.', 'wcfm-gst-tcs' ) );
 		}
 
-		$this->output_invoice_html( $order );
+		$format = isset( $_GET['format'] ) ? sanitize_text_field( wp_unslash( $_GET['format'] ) ) : 'html';
+
+		if ( 'pdf' === $format ) {
+			$this->stream_invoice_pdf( $order );
+		} else {
+			echo $this->get_invoice_html( $order ); // phpcs:ignore WordPress.Security.EscapeOutput -- built from already-escaped fragments.
+		}
 		exit;
+	}
+
+	private function stream_invoice_pdf( $order ) {
+		if ( ! class_exists( 'Dompdf\\Dompdf' ) ) {
+			wp_die( esc_html__( 'PDF generation is not available on this install.', 'wcfm-gst-tcs' ) );
+		}
+
+		$dompdf = new \Dompdf\Dompdf( array( 'isRemoteEnabled' => false ) );
+		$dompdf->loadHtml( $this->get_invoice_html( $order, true ) );
+		$dompdf->setPaper( 'A4' );
+		$dompdf->render();
+
+		nocache_headers();
+		$dompdf->stream(
+			'gst-invoice-order-' . $order->get_order_number() . '.pdf',
+			array( 'Attachment' => true )
+		);
 	}
 
 	private function current_user_can_view_invoice( $order, $key ) {
@@ -167,9 +254,14 @@ class WGT_Invoice {
 		return false;
 	}
 
-	private function output_invoice_html( $order ) {
+	/**
+	 * Builds the GST invoice markup. Shared by the browser "View / Print" endpoint and
+	 * the Dompdf-rendered "Download PDF" endpoint, so both always stay in sync.
+	 */
+	private function get_invoice_html( $order, $for_pdf = false ) {
 		$settings = WGT_Admin_Settings::get_settings();
 		$totals   = WGT_TCS_Engine::get_order_vendor_totals( $order );
+		ob_start();
 		?>
 		<!DOCTYPE html>
 		<html>
@@ -188,7 +280,12 @@ class WGT_Invoice {
 			</style>
 		</head>
 		<body>
-			<div class="wgt-print"><button onclick="window.print()"><?php esc_html_e( 'Print', 'wcfm-gst-tcs' ); ?></button></div>
+			<?php if ( ! $for_pdf ) : ?>
+				<div class="wgt-print">
+					<button onclick="window.print()"><?php esc_html_e( 'Print', 'wcfm-gst-tcs' ); ?></button>
+					<a class="button" href="<?php echo esc_url( add_query_arg( 'format', 'pdf' ) ); ?>"><?php esc_html_e( 'Download PDF', 'wcfm-gst-tcs' ); ?></a>
+				</div>
+			<?php endif; ?>
 
 			<h1><?php echo esc_html( $settings['company_legal_name'] ); ?></h1>
 			<p>
@@ -218,10 +315,17 @@ class WGT_Invoice {
 				$states = WGT_States::get_indian_states();
 				$state  = isset( $states[ $gst['state'] ] ) ? $states[ $gst['state'] ] : $gst['state'];
 				?>
+				<?php $ei = $this->get_einvoice( $order, $vendor_id ); ?>
 				<h2><?php echo esc_html( WGT_Admin_Reports::vendor_label( $vendor_id ) ); ?></h2>
 				<p>
 					<?php echo esc_html__( 'GSTIN:', 'wcfm-gst-tcs' ) . ' ' . esc_html( $gst['gstin'] ? $gst['gstin'] : __( 'Unregistered', 'wcfm-gst-tcs' ) ); ?><br/>
 					<?php echo esc_html__( 'State of Supply:', 'wcfm-gst-tcs' ) . ' ' . esc_html( $state ); ?>
+					<?php if ( $ei['irn'] ) : ?>
+						<br/><?php echo esc_html__( 'IRN:', 'wcfm-gst-tcs' ) . ' ' . esc_html( $ei['irn'] ); ?>
+					<?php endif; ?>
+					<?php if ( $ei['ack_no'] ) : ?>
+						<br/><?php echo esc_html__( 'Ack No:', 'wcfm-gst-tcs' ) . ' ' . esc_html( $ei['ack_no'] ) . ( $ei['ack_date'] ? ' (' . esc_html( $ei['ack_date'] ) . ')' : '' ); ?>
+					<?php endif; ?>
 				</p>
 
 				<table>
@@ -257,11 +361,15 @@ class WGT_Invoice {
 						<tr><td colspan="5"><?php esc_html_e( 'Total GST', 'wcfm-gst-tcs' ); ?></td><td><?php echo wp_kses_post( wc_price( $t['gst'] ) ); ?></td></tr>
 					</tfoot>
 				</table>
+				<?php if ( $ei['qr'] ) : ?>
+					<p style="font-size:.75em;word-break:break-all;"><?php esc_html_e( 'E-Invoice QR:', 'wcfm-gst-tcs' ); ?> <code><?php echo esc_html( $ei['qr'] ); ?></code></p>
+				<?php endif; ?>
 			<?php endforeach; ?>
 
 			<p><em><?php esc_html_e( 'This is a system-generated GST invoice.', 'wcfm-gst-tcs' ); ?></em></p>
 		</body>
 		</html>
 		<?php
+		return ob_get_clean();
 	}
 }

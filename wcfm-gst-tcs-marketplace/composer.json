@@ -1,0 +1,13 @@
+{
+    "name": "solomandev/wcfm-gst-tcs-marketplace",
+    "description": "GST/TCS for WCFM Marketplace",
+    "type": "wordpress-plugin",
+    "require": {
+        "dompdf/dompdf": "^3.1"
+    },
+    "config": {
+        "platform": {
+            "php": "7.4"
+        }
+    }
+}
