@@ -6,7 +6,7 @@ Tested up to: 6.7
 Requires PHP: 7.4
 WC requires at least: 6.0
 WC tested up to: 9.5
-Stable tag: 1.3.1
+Stable tag: 1.4.0
 License: GPLv2 or later
 
 Adds India GST (CGST/SGST/IGST) tax calculation and GST-TCS (Section 52, CGST Act) compliance
@@ -74,6 +74,11 @@ to a WCFM Marketplace multivendor store.
 * Settings > GST & TCS > "Delete data on uninstall" (off by default) controls whether removing
   the plugin also wipes the TCS ledger, settings, and vendor/product GST meta.
 * A small PHPUnit suite (tests/) covering GSTIN validation and the TCS split arithmetic.
+* An automated monthly email to every vendor with their previous month's sales & GST summary
+  (orders, net taxable value, CGST/SGST/IGST, TCS deducted if enabled) plus a detailed
+  line-item invoice CSV attached, for their own GST filing. Configurable send day, an option
+  to skip vendors with no sales, and a "Send Now" button to test or catch up a missed run.
+  Scheduled via WooCommerce's Action Scheduler using a real day-of-month cron expression.
 
 == Notes ==
 
@@ -97,6 +102,13 @@ to a WCFM Marketplace multivendor store.
   include PHPUnit.
 
 == Changelog ==
+
+= 1.4.0 =
+* Automated monthly vendor email: sales & GST summary + detailed invoice CSV for the previous
+  month, sent to every vendor with sales in that period (Settings > GST & TCS to enable, pick
+  the send day, and toggle skipping vendors with no sales). Includes a "Send Now" button to
+  test immediately or catch up a missed run. Requires Action Scheduler (bundled with
+  WooCommerce); the plugin no-ops this feature if it's unavailable rather than erroring.
 
 = 1.3.1 =
 * Fixed the vendor "GST & TCS" tab showing 0.00 for Net Taxable Value/GST Collected whenever

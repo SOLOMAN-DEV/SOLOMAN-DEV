@@ -45,6 +45,9 @@ class WGT_Admin_Settings {
 			'enable_b2b'         => 'yes',
 			'require_gstin_for_business' => 'yes',
 			'delete_data_on_uninstall' => 'no',
+			'monthly_email_enabled'   => 'no',
+			'monthly_email_day'       => 3,
+			'monthly_email_skip_zero' => 'yes',
 		);
 		return wp_parse_args( get_option( 'wgt_settings', array() ), $defaults );
 	}
@@ -78,6 +81,9 @@ class WGT_Admin_Settings {
 			'enable_b2b'         => isset( $_POST['enable_b2b'] ) ? 'yes' : 'no',
 			'require_gstin_for_business' => isset( $_POST['require_gstin_for_business'] ) ? 'yes' : 'no',
 			'delete_data_on_uninstall' => isset( $_POST['delete_data_on_uninstall'] ) ? 'yes' : 'no',
+			'monthly_email_enabled'   => isset( $_POST['monthly_email_enabled'] ) ? 'yes' : 'no',
+			'monthly_email_day'       => isset( $_POST['monthly_email_day'] ) ? max( 1, min( 28, absint( $_POST['monthly_email_day'] ) ) ) : 3,
+			'monthly_email_skip_zero' => isset( $_POST['monthly_email_skip_zero'] ) ? 'yes' : 'no',
 		);
 
 		if ( $gstin ) {
@@ -177,10 +183,45 @@ class WGT_Admin_Settings {
 							<p class="description"><?php esc_html_e( 'Leave this off to keep your TCS ledger and GST records for audit purposes even if the plugin is removed.', 'wcfm-gst-tcs' ); ?></p>
 						</td>
 					</tr>
+					<tr>
+						<th scope="row"><?php esc_html_e( 'Monthly vendor GST email', 'wcfm-gst-tcs' ); ?></th>
+						<td>
+							<label><input type="checkbox" name="monthly_email_enabled" value="1" <?php checked( $settings['monthly_email_enabled'], 'yes' ); ?> /> <?php esc_html_e( 'Automatically email each vendor a sales & GST summary for the previous month, with a detailed invoice CSV attached', 'wcfm-gst-tcs' ); ?></label>
+							<p class="description"><?php esc_html_e( 'Requires WooCommerce\'s Action Scheduler (present on any current WooCommerce install).', 'wcfm-gst-tcs' ); ?></p>
+						</td>
+					</tr>
+					<tr>
+						<th scope="row"><label for="monthly_email_day"><?php esc_html_e( 'Send on day of month', 'wcfm-gst-tcs' ); ?></label></th>
+						<td>
+							<input type="number" min="1" max="28" id="monthly_email_day" name="monthly_email_day" value="<?php echo esc_attr( $settings['monthly_email_day'] ); ?>" class="small-text" />
+							<p class="description"><?php esc_html_e( 'Day of the following month the report for the previous month is sent (e.g. 3 = the 3rd of each month, giving a few days\' buffer after month-end).', 'wcfm-gst-tcs' ); ?></p>
+						</td>
+					</tr>
+					<tr>
+						<th scope="row"><?php esc_html_e( 'Skip vendors with no sales', 'wcfm-gst-tcs' ); ?></th>
+						<td><label><input type="checkbox" name="monthly_email_skip_zero" value="1" <?php checked( $settings['monthly_email_skip_zero'], 'yes' ); ?> /> <?php esc_html_e( 'Don\'t email a vendor who had no orders in the period', 'wcfm-gst-tcs' ); ?></label></td>
+					</tr>
 				</table>
 				<?php submit_button( __( 'Save Settings', 'wcfm-gst-tcs' ) ); ?>
 			</form>
+
+			<?php $this->render_monthly_email_test_button(); ?>
 		</div>
+		<?php
+	}
+
+	private function render_monthly_email_test_button() {
+		if ( ! class_exists( 'WGT_Monthly_Email' ) ) {
+			return;
+		}
+		?>
+		<h2><?php esc_html_e( 'Monthly Vendor Email', 'wcfm-gst-tcs' ); ?></h2>
+		<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+			<input type="hidden" name="action" value="wgt_run_monthly_email_now" />
+			<?php wp_nonce_field( 'wgt_run_monthly_email_now' ); ?>
+			<?php submit_button( __( 'Send Now (Previous Month)', 'wcfm-gst-tcs' ), 'secondary', '', false ); ?>
+			<p class="description"><?php esc_html_e( 'Sends the previous month\'s report immediately, to every qualifying vendor, regardless of the scheduled day above. Useful to test or to catch up a missed run.', 'wcfm-gst-tcs' ); ?></p>
+		</form>
 		<?php
 	}
 

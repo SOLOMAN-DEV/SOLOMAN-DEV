@@ -3,7 +3,7 @@
  * Plugin Name: WCFM GST & TCS for Multivendor Marketplace
  * Plugin URI: https://example.com/wcfm-gst-tcs-marketplace
  * Description: Adds India GST (CGST/SGST/IGST) tax calculation and GST-TCS (Sec 52) compliance to a WCFM Marketplace multivendor store — per-product HSN/GST rates, vendor GSTIN capture, B2B checkout, PDF GST invoices, and GSTR-1/GSTR-8 style reports.
- * Version: 1.3.1
+ * Version: 1.4.0
  * Author: Soloman Dev
  * Text Domain: wcfm-gst-tcs
  * Domain Path: /languages
@@ -17,7 +17,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'WGT_VERSION', '1.3.1' );
+define( 'WGT_VERSION', '1.4.0' );
 define( 'WGT_PLUGIN_FILE', __FILE__ );
 define( 'WGT_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'WGT_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
@@ -53,6 +53,7 @@ require_once WGT_PLUGIN_DIR . 'includes/class-wgt-admin-reports.php';
 require_once WGT_PLUGIN_DIR . 'includes/class-wgt-export-job.php';
 require_once WGT_PLUGIN_DIR . 'includes/class-wgt-vendor-dashboard.php';
 require_once WGT_PLUGIN_DIR . 'includes/class-wgt-b2b-checkout.php';
+require_once WGT_PLUGIN_DIR . 'includes/class-wgt-monthly-email.php';
 
 final class WCFM_GST_TCS_Plugin {
 
@@ -75,6 +76,10 @@ final class WCFM_GST_TCS_Plugin {
 
 	public function deactivate() {
 		wp_clear_scheduled_hook( 'wgt_cleanup_exports' );
+		if ( function_exists( 'as_unschedule_all_actions' ) ) {
+			as_unschedule_all_actions( 'wgt_monthly_vendor_email', array(), 'wgt-monthly-email' );
+		}
+		delete_option( 'wgt_monthly_email_day_scheduled' );
 	}
 
 	public function declare_hpos_compatibility() {
@@ -101,6 +106,7 @@ final class WCFM_GST_TCS_Plugin {
 		WGT_Export_Job::instance();
 		WGT_Vendor_Dashboard::instance();
 		WGT_B2B_Checkout::instance();
+		WGT_Monthly_Email::instance();
 
 		add_action( 'admin_enqueue_scripts', array( $this, 'enqueue_assets' ) );
 		add_action( 'wp_enqueue_scripts', array( $this, 'enqueue_assets' ) );
