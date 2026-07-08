@@ -46,9 +46,14 @@ class WGT_Vendor_Settings {
 			'legal_name'     => '',
 			'gst_registered' => 'no',
 			'state'          => '',
+			'tcs_exempt'     => 'no',
 		);
 		$saved = get_user_meta( $vendor_id, self::META_KEY, true );
 		return wp_parse_args( is_array( $saved ) ? $saved : array(), $defaults );
+	}
+
+	public static function is_tcs_exempt( $vendor_id ) {
+		return 'yes' === self::get_vendor_gst( $vendor_id )['tcs_exempt'];
 	}
 
 	public static function get_vendor_state( $vendor_id ) {
@@ -62,11 +67,20 @@ class WGT_Vendor_Settings {
 		return '';
 	}
 
+	/**
+	 * 'tcs_exempt' is intentionally not settable through the vendor-facing WCFM form or
+	 * AJAX — it's a marketplace-operator compliance decision, so $raw only carries it when
+	 * called from the wp-admin profile save path, which is gated to manage_woocommerce.
+	 * When absent, the vendor's own settings save can't accidentally clear an exemption
+	 * the admin set, because we carry the existing stored value forward.
+	 */
 	private function sanitize_and_store( $vendor_id, $raw ) {
+		$existing = self::get_vendor_gst( $vendor_id );
+
 		$gstin = isset( $raw['gstin'] ) ? strtoupper( sanitize_text_field( wp_unslash( $raw['gstin'] ) ) ) : '';
 		$state = isset( $raw['state'] ) ? sanitize_text_field( wp_unslash( $raw['state'] ) ) : '';
 
-		if ( $gstin && ! WGT_States::is_valid_gstin( $gstin ) ) {
+		if ( $gstin && ( ! WGT_States::is_valid_gstin( $gstin ) || ! WGT_States::passes_external_verification( $gstin ) ) ) {
 			$gstin = '';
 		}
 		if ( $gstin && ! $state ) {
@@ -79,6 +93,7 @@ class WGT_Vendor_Settings {
 			'legal_name'     => isset( $raw['legal_name'] ) ? sanitize_text_field( wp_unslash( $raw['legal_name'] ) ) : '',
 			'gst_registered' => ! empty( $raw['gst_registered'] ) ? 'yes' : 'no',
 			'state'          => $state,
+			'tcs_exempt'     => array_key_exists( 'tcs_exempt', $raw ) ? ( ! empty( $raw['tcs_exempt'] ) ? 'yes' : 'no' ) : $existing['tcs_exempt'],
 		);
 
 		update_user_meta( $vendor_id, self::META_KEY, $data );
@@ -221,6 +236,15 @@ class WGT_Vendor_Settings {
 					</select>
 				</td>
 			</tr>
+			<?php if ( current_user_can( 'manage_woocommerce' ) ) : ?>
+				<tr>
+					<th><label for="wgt_tcs_exempt"><?php esc_html_e( 'Exempt from GST-TCS', 'wcfm-gst-tcs' ); ?></label></th>
+					<td>
+						<input type="checkbox" id="wgt_tcs_exempt" name="wgt_tcs_exempt" value="1" <?php checked( $gst['tcs_exempt'], 'yes' ); ?> />
+						<p class="description"><?php esc_html_e( 'Marketplace-operator decision only — this vendor\'s sales are excluded from the GST-TCS ledger/reports.', 'wcfm-gst-tcs' ); ?></p>
+					</td>
+				</tr>
+			<?php endif; ?>
 		</table>
 		<?php
 	}
@@ -233,16 +257,19 @@ class WGT_Vendor_Settings {
 			return;
 		}
 
-		$this->sanitize_and_store(
-			$user_id,
-			array(
-				'gstin'          => $_POST['wgt_gstin'] ?? '',
-				'pan'            => $_POST['wgt_pan'] ?? '',
-				'legal_name'     => $_POST['wgt_legal_name'] ?? '',
-				'gst_registered' => $_POST['wgt_gst_registered'] ?? '',
-				'state'          => $_POST['wgt_state'] ?? '',
-			)
+		$raw = array(
+			'gstin'          => $_POST['wgt_gstin'] ?? '',
+			'pan'            => $_POST['wgt_pan'] ?? '',
+			'legal_name'     => $_POST['wgt_legal_name'] ?? '',
+			'gst_registered' => $_POST['wgt_gst_registered'] ?? '',
+			'state'          => $_POST['wgt_state'] ?? '',
 		);
+
+		if ( current_user_can( 'manage_woocommerce' ) ) {
+			$raw['tcs_exempt'] = $_POST['wgt_tcs_exempt'] ?? '';
+		}
+
+		$this->sanitize_and_store( $user_id, $raw );
 	}
 
 	public function ajax_validate_gstin() {

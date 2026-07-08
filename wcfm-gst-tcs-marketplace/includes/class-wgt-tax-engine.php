@@ -160,20 +160,41 @@ class WGT_Tax_Engine {
 
 		$this->ensure_gst_tax_classes( $rate );
 
+		return 'intra' === $this->determine_tax_type( $product_id ) ? $this->intra_slug( $rate ) : $this->inter_slug( $rate );
+	}
+
+	/**
+	 * Same same-state/different-state decision as filter_product_tax_class(), exposed so
+	 * it can be stamped onto the order line at checkout. Reports then read that stamp
+	 * instead of pattern-matching "CGST"/"SGST"/"IGST" out of a tax rate's display label,
+	 * which stays correct even if a store owner renames the rate labels later.
+	 *
+	 * @return string 'intra', 'inter', or '' when GST doesn't apply (e.g. 0% rate).
+	 */
+	public function determine_tax_type( $product_id ) {
+		$settings = WGT_Admin_Settings::get_settings();
+		if ( 'yes' !== $settings['enable_gst'] || ! $this->buyer_is_in_india() ) {
+			return '';
+		}
+
+		$rate = WGT_Product_Fields::get_gst_rate( $product_id );
+		if ( $rate <= 0 ) {
+			return '';
+		}
+
 		$vendor_state   = $this->get_vendor_state_for_product( $product_id );
 		$customer_state = $this->get_customer_state();
 
 		if ( $vendor_state && $customer_state && $vendor_state === $customer_state ) {
-			return $this->intra_slug( $rate );
+			return 'intra';
 		}
-
-		return $this->inter_slug( $rate );
+		return 'inter';
 	}
 
 	/**
-	 * Records the HSN code, GST rate and selling vendor on each order line at
-	 * checkout time, so later reporting/invoicing never has to re-derive them
-	 * from a product that may since have changed or been deleted.
+	 * Records the HSN code, GST rate, tax type and selling vendor on each order line at
+	 * checkout time, so later reporting/invoicing never has to re-derive them from a
+	 * product that may since have changed or been deleted.
 	 */
 	public function stamp_line_item_meta( $item, $cart_item_key, $values, $order ) {
 		if ( ! isset( $values['product_id'] ) ) {
@@ -189,6 +210,7 @@ class WGT_Tax_Engine {
 			$item->add_meta_data( '_wgt_hsn_code', $hsn, true );
 		}
 		$item->add_meta_data( '_wgt_gst_rate', $rate, true );
+		$item->add_meta_data( '_wgt_tax_type', $this->determine_tax_type( $product_id ), true );
 		if ( $vendor_id ) {
 			$item->add_meta_data( '_wgt_vendor_id', $vendor_id, true );
 			$item->add_meta_data( '_wgt_vendor_state', WGT_Vendor_Settings::get_vendor_state( $vendor_id ), true );

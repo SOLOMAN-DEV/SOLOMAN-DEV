@@ -6,7 +6,7 @@ Tested up to: 6.7
 Requires PHP: 7.4
 WC requires at least: 6.0
 WC tested up to: 9.5
-Stable tag: 1.1.0
+Stable tag: 1.2.0
 License: GPLv2 or later
 
 Adds India GST (CGST/SGST/IGST) tax calculation and GST-TCS (Section 52, CGST Act) compliance
@@ -58,6 +58,18 @@ to a WCFM Marketplace multivendor store.
 * Partial refunds recompute each affected vendor's TCS ledger row from WooCommerce's own
   per-item refunded amounts, instead of only reacting to a full order cancellation.
 * Declares WooCommerce High-Performance Order Storage (HPOS) compatibility.
+* A checkout-time nudge (non-blocking) if the entered GSTIN's registered state doesn't match
+  the billing address state, to catch typos before the order is placed.
+* Per-vendor "Exempt from GST-TCS" toggle (admin-only, not vendor-editable) for suppliers who
+  are legally exempt, excluding them from the TCS ledger/reports.
+* Large GST/GSTR-1 CSV exports (over ~2,000 orders in range) are automatically queued as a
+  background job via WooCommerce's Action Scheduler and emailed as a download link instead of
+  streaming synchronously, to avoid PHP execution-time limits.
+* A `wgt_gstin_is_registered` filter (no-op by default) so a site can wire in a paid GSP/GSTN
+  verification API on top of the built-in structural + checksum validation.
+* Settings > GST & TCS > "Delete data on uninstall" (off by default) controls whether removing
+  the plugin also wipes the TCS ledger, settings, and vendor/product GST meta.
+* A small PHPUnit suite (tests/) covering GSTIN validation and the TCS split arithmetic.
 
 == Notes ==
 
@@ -66,16 +78,31 @@ to a WCFM Marketplace multivendor store.
   annual threshold) — that is a separate compliance requirement and out of scope here.
 * GSTIN validation checks structure and the real mod-36 check digit, which catches typos and
   fabricated numbers, but does not verify against the GSTN portal that the GSTIN is actually
-  registered/active.
+  registered/active — see the `wgt_gstin_is_registered` filter if you need that.
 * E-invoice IRN/Ack/QR fields are for recording what a vendor generated on the government
   e-invoice portal; this plugin does not call the IRP/GSP API to generate an IRN itself.
 * Configure Settings > GST & TCS with your marketplace operator GSTIN/state before going live,
   and ask each vendor to fill in their GSTIN/state so tax is calculated correctly.
 * Always confirm the final GST/TCS treatment with a qualified CA before filing — this plugin
   automates the arithmetic, it isn't a substitute for professional tax advice.
-* Bundles dompdf (vendor/) for PDF invoice generation.
+* Bundles dompdf (vendor/) for PDF invoice generation. Background CSV exports require
+  WooCommerce's bundled Action Scheduler (present on any current WooCommerce install); if
+  unavailable, exports simply always stream synchronously instead.
+* Running the test suite locally: `composer install` (pulls in PHPUnit as a dev dependency)
+  then `vendor/bin/phpunit`. The shipped/production vendor/ (installed with --no-dev) does not
+  include PHPUnit.
 
 == Changelog ==
+
+= 1.2.0 =
+* GST/GSTR-1 reports now read a `_wgt_tax_type` stamp recorded at checkout instead of
+  pattern-matching tax rate labels, with a fallback for orders placed before this update.
+* Checkout-time GSTIN/billing-state mismatch warning (non-blocking).
+* Per-vendor GST-TCS exemption toggle (admin-only).
+* `wgt_gstin_is_registered` filter as an external-verification extension point.
+* Opt-in "delete data on uninstall" setting + uninstall.php.
+* Background/emailed CSV exports for large date ranges via Action Scheduler.
+* Added a PHPUnit test suite for GSTIN validation and TCS split math.
 
 = 1.1.0 =
 * B2B checkout: buyer Company Name + GSTIN, shown on invoices/order details/admin.

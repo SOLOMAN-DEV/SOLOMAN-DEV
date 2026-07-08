@@ -92,8 +92,36 @@ class WGT_B2B_Checkout {
 
 		if ( $this->require_gstin() && ( '' === $gstin || ! WGT_States::is_valid_gstin( $gstin ) ) ) {
 			wc_add_notice( __( 'Please enter a valid 15-character GSTIN.', 'wcfm-gst-tcs' ), 'error' );
+			return;
 		} elseif ( '' !== $gstin && ! WGT_States::is_valid_gstin( $gstin ) ) {
 			wc_add_notice( __( 'The GSTIN entered does not look valid. Please check and try again.', 'wcfm-gst-tcs' ), 'error' );
+			return;
+		}
+
+		if ( '' === $gstin ) {
+			return;
+		}
+
+		if ( ! WGT_States::passes_external_verification( $gstin ) ) {
+			wc_add_notice( __( 'This GSTIN could not be verified. Please check and try again.', 'wcfm-gst-tcs' ), 'error' );
+			return;
+		}
+
+		// Not blocking: a registered address can legitimately differ from the ship-to/bill-to
+		// address entered here, so this is a nudge to double-check, not a hard requirement.
+		$gstin_state  = WGT_States::state_from_gstin( $gstin );
+		$billing_state = isset( $_POST['billing_state'] ) ? sanitize_text_field( wp_unslash( $_POST['billing_state'] ) ) : '';
+		if ( $gstin_state && $billing_state && $gstin_state !== $billing_state ) {
+			$states = WGT_States::get_indian_states();
+			wc_add_notice(
+				sprintf(
+					/* translators: 1: state the GSTIN is registered in, 2: state entered as the billing address */
+					__( 'Heads up: the GSTIN you entered is registered in %1$s, but your billing address state is %2$s. Double-check this is correct before placing the order.', 'wcfm-gst-tcs' ),
+					isset( $states[ $gstin_state ] ) ? $states[ $gstin_state ] : $gstin_state,
+					isset( $states[ $billing_state ] ) ? $states[ $billing_state ] : $billing_state
+				),
+				'notice'
+			);
 		}
 	}
 

@@ -178,7 +178,11 @@ class WGT_Invoice {
 			echo '<tr><th colspan="2">' . esc_html( WGT_Admin_Reports::vendor_label( $vendor_id ) ) . '</th></tr>';
 			echo '<tr><td>' . esc_html__( 'Net Taxable', 'wcfm-gst-tcs' ) . '</td><td>' . wc_price( $t['net'] ) . '</td></tr>'; // phpcs:ignore WordPress.Security.EscapeOutput
 			echo '<tr><td>' . esc_html__( 'GST', 'wcfm-gst-tcs' ) . '</td><td>' . wc_price( $t['gst'] ) . '</td></tr>'; // phpcs:ignore WordPress.Security.EscapeOutput
-			echo '<tr><td>' . esc_html__( 'Est. TCS', 'wcfm-gst-tcs' ) . '</td><td>' . wc_price( $tcs ) . '</td></tr>'; // phpcs:ignore WordPress.Security.EscapeOutput
+			if ( WGT_Vendor_Settings::is_tcs_exempt( $vendor_id ) ) {
+				echo '<tr><td>' . esc_html__( 'TCS', 'wcfm-gst-tcs' ) . '</td><td>' . esc_html__( 'Exempt', 'wcfm-gst-tcs' ) . '</td></tr>';
+			} else {
+				echo '<tr><td>' . esc_html__( 'Est. TCS', 'wcfm-gst-tcs' ) . '</td><td>' . wc_price( $tcs ) . '</td></tr>'; // phpcs:ignore WordPress.Security.EscapeOutput
+			}
 
 			echo '<tr><td colspan="2"><em>' . esc_html__( 'E-Invoice (optional, from GST e-invoice portal)', 'wcfm-gst-tcs' ) . '</em></td></tr>';
 			echo '<tr><td>' . esc_html__( 'IRN', 'wcfm-gst-tcs' ) . '</td><td><input type="text" style="width:100%" name="wgt_einvoice[' . esc_attr( $vendor_id ) . '][irn]" value="' . esc_attr( $ei['irn'] ) . '" /></td></tr>';

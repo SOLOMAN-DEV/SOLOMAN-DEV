@@ -98,27 +98,45 @@ class WGT_TCS_Engine {
 				continue;
 			}
 
-			$tcs_amount   = round( $totals['net'] * $tcs_rate / 100, 2 );
 			$vendor_state = WGT_Vendor_Settings::get_vendor_state( $vendor_id );
 			$same_state   = $op_state && $vendor_state && ( $op_state === $vendor_state );
-			$cgst         = $same_state ? round( $tcs_amount / 2, 2 ) : 0;
-			$sgst         = $same_state ? round( $tcs_amount - $cgst, 2 ) : 0;
-			$igst         = $same_state ? 0 : $tcs_amount;
+			$split        = self::calculate_tcs_split( $totals['net'], $tcs_rate, $same_state );
 
 			$wpdb->update( // phpcs:ignore WordPress.DB.DirectDatabaseQuery
 				$table,
 				array(
 					'net_taxable_value' => $totals['net'],
 					'gst_amount'        => $totals['gst'],
-					'tcs_amount'        => $tcs_amount,
-					'cgst_tcs'          => $cgst,
-					'sgst_tcs'          => $sgst,
-					'igst_tcs'          => $igst,
+					'tcs_amount'        => $split['tcs_amount'],
+					'cgst_tcs'          => $split['cgst'],
+					'sgst_tcs'          => $split['sgst'],
+					'igst_tcs'          => $split['igst'],
 					'status'            => 'collected',
 				),
 				array( 'order_id' => $order_id, 'vendor_id' => $vendor_id )
 			);
 		}
+	}
+
+	/**
+	 * Pure TCS-split arithmetic, pulled out so it can be unit tested without a database or
+	 * WC_Order: 1% (configurable) of net taxable value, split half CGST/half SGST when the
+	 * vendor is in the same state as the marketplace operator, or wholly IGST otherwise.
+	 *
+	 * @return array{tcs_amount:float,cgst:float,sgst:float,igst:float}
+	 */
+	public static function calculate_tcs_split( $net_taxable_value, $tcs_rate, $same_state ) {
+		$tcs_amount = round( (float) $net_taxable_value * (float) $tcs_rate / 100, 2 );
+		$cgst       = $same_state ? round( $tcs_amount / 2, 2 ) : 0.0;
+		$sgst       = $same_state ? round( $tcs_amount - $cgst, 2 ) : 0.0;
+		$igst       = $same_state ? 0.0 : $tcs_amount;
+
+		return array(
+			'tcs_amount' => $tcs_amount,
+			'cgst'       => $cgst,
+			'sgst'       => $sgst,
+			'igst'       => $igst,
+		);
 	}
 
 	public function record_for_order( $order_id, $order = null ) {
@@ -145,17 +163,13 @@ class WGT_TCS_Engine {
 		$wpdb->delete( $table, array( 'order_id' => $order_id ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery
 
 		foreach ( $vendor_totals as $vendor_id => $totals ) {
-			if ( $totals['net'] <= 0 ) {
+			if ( $totals['net'] <= 0 || WGT_Vendor_Settings::is_tcs_exempt( $vendor_id ) ) {
 				continue;
 			}
 
-			$tcs_amount = round( $totals['net'] * $tcs_rate / 100, 2 );
 			$vendor_state = WGT_Vendor_Settings::get_vendor_state( $vendor_id );
 			$same_state   = $op_state && $vendor_state && ( $op_state === $vendor_state );
-
-			$cgst = $same_state ? round( $tcs_amount / 2, 2 ) : 0;
-			$sgst = $same_state ? round( $tcs_amount - $cgst, 2 ) : 0;
-			$igst = $same_state ? 0 : $tcs_amount;
+			$split        = self::calculate_tcs_split( $totals['net'], $tcs_rate, $same_state );
 
 			$wpdb->insert( // phpcs:ignore WordPress.DB.DirectDatabaseQuery
 				$table,
@@ -166,10 +180,10 @@ class WGT_TCS_Engine {
 					'net_taxable_value' => $totals['net'],
 					'gst_amount'        => $totals['gst'],
 					'tcs_rate'          => $tcs_rate,
-					'tcs_amount'        => $tcs_amount,
-					'cgst_tcs'          => $cgst,
-					'sgst_tcs'          => $sgst,
-					'igst_tcs'          => $igst,
+					'tcs_amount'        => $split['tcs_amount'],
+					'cgst_tcs'          => $split['cgst'],
+					'sgst_tcs'          => $split['sgst'],
+					'igst_tcs'          => $split['igst'],
 					'financial_year'    => $fy,
 					'status'            => 'collected',
 					'created_at'        => current_time( 'mysql' ),

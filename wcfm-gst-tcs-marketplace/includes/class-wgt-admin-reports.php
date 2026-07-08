@@ -27,6 +27,48 @@ class WGT_Admin_Reports {
 		add_submenu_page( 'wgt-settings', __( 'GSTR-1 Export', 'wcfm-gst-tcs' ), __( 'GSTR-1 Export', 'wcfm-gst-tcs' ), 'manage_woocommerce', 'wgt-gstr1-report', array( $this, 'render_gstr1_report' ) );
 	}
 
+	/**
+	 * Yields matching orders in fixed-size pages instead of loading the whole date range
+	 * into memory at once (wc_get_orders with limit => -1), so a report over a large
+	 * order history doesn't exhaust PHP's memory limit.
+	 */
+	public static function iterate_orders( $date_from, $date_to, $batch_size = 200 ) {
+		$page = 1;
+		do {
+			$orders = wc_get_orders(
+				array(
+					'limit'        => $batch_size,
+					'paged'        => $page,
+					'status'       => array( 'processing', 'completed' ),
+					'date_created' => $date_from . '...' . $date_to,
+					'return'       => 'objects',
+					'orderby'      => 'ID',
+					'order'        => 'ASC',
+				)
+			);
+			foreach ( $orders as $order ) {
+				yield $order;
+			}
+			++$page;
+		} while ( count( $orders ) === $batch_size );
+	}
+
+	/**
+	 * Cheap order count (IDs only) for a date range, used to decide whether an export
+	 * should run synchronously or be queued as a background job.
+	 */
+	public static function count_orders_in_range( $date_from, $date_to ) {
+		$ids = wc_get_orders(
+			array(
+				'limit'        => -1,
+				'status'       => array( 'processing', 'completed' ),
+				'date_created' => $date_from . '...' . $date_to,
+				'return'       => 'ids',
+			)
+		);
+		return count( $ids );
+	}
+
 	public static function vendor_label( $vendor_id ) {
 		if ( function_exists( 'wcfm_get_vendor_store_name' ) ) {
 			$name = wcfm_get_vendor_store_name( $vendor_id );
@@ -36,6 +78,47 @@ class WGT_Admin_Reports {
 		}
 		$name = get_the_author_meta( 'display_name', $vendor_id );
 		return $name ? $name : ( 'Vendor #' . $vendor_id );
+	}
+
+	/**
+	 * Splits an order item's total tax into CGST/SGST/IGST. Prefers the '_wgt_tax_type'
+	 * meta stamped at checkout (immune to rate labels being renamed later); falls back to
+	 * matching on the tax rate's display label for orders placed before that meta existed.
+	 */
+	public static function item_gst_split( $item ) {
+		$split = array( 'cgst' => 0.0, 'sgst' => 0.0, 'igst' => 0.0 );
+		$type  = $item->get_meta( '_wgt_tax_type' );
+
+		if ( 'intra' === $type || 'inter' === $type ) {
+			$total_tax = (float) $item->get_total_tax();
+			if ( 'intra' === $type ) {
+				$split['cgst'] = round( $total_tax / 2, 2 );
+				$split['sgst'] = round( $total_tax - $split['cgst'], 2 );
+			} else {
+				$split['igst'] = $total_tax;
+			}
+			return $split;
+		}
+
+		$taxes = $item->get_taxes();
+		if ( empty( $taxes['total'] ) ) {
+			return $split;
+		}
+		foreach ( $taxes['total'] as $rate_id => $amount ) {
+			if ( '' === $amount ) {
+				continue;
+			}
+			$label = wc_get_rate_label( $rate_id );
+			$amt   = (float) $amount;
+			if ( false !== stripos( $label, 'CGST' ) ) {
+				$split['cgst'] += $amt;
+			} elseif ( false !== stripos( $label, 'SGST' ) ) {
+				$split['sgst'] += $amt;
+			} elseif ( false !== stripos( $label, 'IGST' ) ) {
+				$split['igst'] += $amt;
+			}
+		}
+		return $split;
 	}
 
 	private function get_filters() {
@@ -49,19 +132,10 @@ class WGT_Admin_Reports {
 	/**
 	 * @return array<int,array{net:float,gst:float,cgst:float,sgst:float,igst:float,order_count:int}>
 	 */
-	private function gather_gst_report( $date_from, $date_to, $vendor_id = 0 ) {
-		$orders = wc_get_orders(
-			array(
-				'limit'        => -1,
-				'status'       => array( 'processing', 'completed' ),
-				'date_created' => $date_from . '...' . $date_to,
-				'return'       => 'objects',
-			)
-		);
-
+	public static function gather_gst_report( $date_from, $date_to, $vendor_id = 0 ) {
 		$data = array();
 
-		foreach ( $orders as $order ) {
+		foreach ( self::iterate_orders( $date_from, $date_to ) as $order ) {
 			foreach ( $order->get_items() as $item ) {
 				$v = $item->get_meta( '_wgt_vendor_id' );
 				if ( ! $v && function_exists( 'wcfm_get_vendor_id_by_post' ) ) {
@@ -90,23 +164,10 @@ class WGT_Admin_Reports {
 				$data[ $v ]['net']                        += (float) $item->get_total();
 				$data[ $v ]['gst']                        += (float) $item->get_total_tax();
 
-				$taxes = $item->get_taxes();
-				if ( ! empty( $taxes['total'] ) ) {
-					foreach ( $taxes['total'] as $rate_id => $amount ) {
-						if ( '' === $amount ) {
-							continue;
-						}
-						$label = wc_get_rate_label( $rate_id );
-						$amt   = (float) $amount;
-						if ( false !== stripos( $label, 'CGST' ) ) {
-							$data[ $v ]['cgst'] += $amt;
-						} elseif ( false !== stripos( $label, 'SGST' ) ) {
-							$data[ $v ]['sgst'] += $amt;
-						} elseif ( false !== stripos( $label, 'IGST' ) ) {
-							$data[ $v ]['igst'] += $amt;
-						}
-					}
-				}
+				$split               = self::item_gst_split( $item );
+				$data[ $v ]['cgst'] += $split['cgst'];
+				$data[ $v ]['sgst'] += $split['sgst'];
+				$data[ $v ]['igst'] += $split['igst'];
 			}
 		}
 
@@ -124,7 +185,7 @@ class WGT_Admin_Reports {
 		}
 
 		$filters = $this->get_filters();
-		$rows    = $this->gather_gst_report( $filters['date_from'], $filters['date_to'], $filters['vendor_id'] );
+		$rows    = self::gather_gst_report( $filters['date_from'], $filters['date_to'], $filters['vendor_id'] );
 		?>
 		<div class="wrap wgt-admin-wrap">
 			<h1><?php esc_html_e( 'Vendor GST Tax Summary', 'wcfm-gst-tcs' ); ?></h1>
@@ -190,7 +251,12 @@ class WGT_Admin_Reports {
 		$date_to   = isset( $_POST['date_to'] ) ? sanitize_text_field( wp_unslash( $_POST['date_to'] ) ) : gmdate( 'Y-m-d' );
 		$vendor_id = isset( $_POST['vendor_id'] ) ? absint( $_POST['vendor_id'] ) : 0;
 
-		$rows = $this->gather_gst_report( $date_from, $date_to, $vendor_id );
+		if ( WGT_Export_Job::instance()->maybe_queue( 'gst_report', $date_from, $date_to, $vendor_id ) ) {
+			wp_safe_redirect( wp_get_referer() ? wp_get_referer() : admin_url( 'admin.php?page=wgt-gst-report' ) );
+			exit;
+		}
+
+		$rows = self::gather_gst_report( $date_from, $date_to, $vendor_id );
 		$csv  = array();
 
 		foreach ( $rows as $vendor_id => $row ) {
@@ -348,20 +414,11 @@ class WGT_Admin_Reports {
 	 * hand or via their own filing tool. This is a convenience export, not the GSTN
 	 * portal's JSON upload format.
 	 */
-	private function gather_gstr1_rows( $date_from, $date_to, $vendor_id = 0 ) {
-		$orders = wc_get_orders(
-			array(
-				'limit'        => -1,
-				'status'       => array( 'processing', 'completed' ),
-				'date_created' => $date_from . '...' . $date_to,
-				'return'       => 'objects',
-			)
-		);
-
+	public static function gather_gstr1_rows( $date_from, $date_to, $vendor_id = 0 ) {
 		$states = WGT_States::get_indian_states();
 		$rows   = array();
 
-		foreach ( $orders as $order ) {
+		foreach ( self::iterate_orders( $date_from, $date_to ) as $order ) {
 			$is_b2b       = 'yes' === $order->get_meta( '_billing_is_business' );
 			$buyer_gstin  = $is_b2b ? $order->get_meta( '_billing_gstin' ) : '';
 			$buyer_name   = $is_b2b && $order->get_billing_company() ? $order->get_billing_company() : $order->get_formatted_billing_full_name();
@@ -381,26 +438,10 @@ class WGT_Admin_Reports {
 					continue;
 				}
 
-				$cgst = 0.0;
-				$sgst = 0.0;
-				$igst = 0.0;
-				$taxes = $item->get_taxes();
-				if ( ! empty( $taxes['total'] ) ) {
-					foreach ( $taxes['total'] as $rate_id => $amount ) {
-						if ( '' === $amount ) {
-							continue;
-						}
-						$label = wc_get_rate_label( $rate_id );
-						$amt   = (float) $amount;
-						if ( false !== stripos( $label, 'CGST' ) ) {
-							$cgst += $amt;
-						} elseif ( false !== stripos( $label, 'SGST' ) ) {
-							$sgst += $amt;
-						} elseif ( false !== stripos( $label, 'IGST' ) ) {
-							$igst += $amt;
-						}
-					}
-				}
+				$split = self::item_gst_split( $item );
+				$cgst  = $split['cgst'];
+				$sgst  = $split['sgst'];
+				$igst  = $split['igst'];
 
 				$vendor_gst = WGT_Vendor_Settings::get_vendor_gst( $v );
 
@@ -460,7 +501,12 @@ class WGT_Admin_Reports {
 		$date_to   = isset( $_POST['date_to'] ) ? sanitize_text_field( wp_unslash( $_POST['date_to'] ) ) : gmdate( 'Y-m-d' );
 		$vendor_id = isset( $_POST['vendor_id'] ) ? absint( $_POST['vendor_id'] ) : 0;
 
-		$rows = $this->gather_gstr1_rows( $date_from, $date_to, $vendor_id );
+		if ( WGT_Export_Job::instance()->maybe_queue( 'gstr1', $date_from, $date_to, $vendor_id ) ) {
+			wp_safe_redirect( wp_get_referer() ? wp_get_referer() : admin_url( 'admin.php?page=wgt-gstr1-report' ) );
+			exit;
+		}
+
+		$rows = self::gather_gstr1_rows( $date_from, $date_to, $vendor_id );
 
 		WGT_CSV_Export::stream(
 			'gstr1-export-' . $date_from . '-to-' . $date_to,

@@ -44,6 +44,7 @@ class WGT_Admin_Settings {
 			'hsn_mandatory'      => 'no',
 			'enable_b2b'         => 'yes',
 			'require_gstin_for_business' => 'yes',
+			'delete_data_on_uninstall' => 'no',
 		);
 		return wp_parse_args( get_option( 'wgt_settings', array() ), $defaults );
 	}
@@ -76,6 +77,7 @@ class WGT_Admin_Settings {
 			'hsn_mandatory'      => isset( $_POST['hsn_mandatory'] ) ? 'yes' : 'no',
 			'enable_b2b'         => isset( $_POST['enable_b2b'] ) ? 'yes' : 'no',
 			'require_gstin_for_business' => isset( $_POST['require_gstin_for_business'] ) ? 'yes' : 'no',
+			'delete_data_on_uninstall' => isset( $_POST['delete_data_on_uninstall'] ) ? 'yes' : 'no',
 		);
 
 		if ( $gstin ) {
@@ -167,6 +169,13 @@ class WGT_Admin_Settings {
 					<tr>
 						<th scope="row"><?php esc_html_e( 'Require GSTIN for business purchases', 'wcfm-gst-tcs' ); ?></th>
 						<td><label><input type="checkbox" name="require_gstin_for_business" value="1" <?php checked( $settings['require_gstin_for_business'], 'yes' ); ?> /> <?php esc_html_e( 'Block checkout unless a valid GSTIN and Company Name are entered when the business purchase option is ticked', 'wcfm-gst-tcs' ); ?></label></td>
+					</tr>
+					<tr>
+						<th scope="row"><?php esc_html_e( 'Delete data on uninstall', 'wcfm-gst-tcs' ); ?></th>
+						<td>
+							<label><input type="checkbox" name="delete_data_on_uninstall" value="1" <?php checked( $settings['delete_data_on_uninstall'], 'yes' ); ?> /> <?php esc_html_e( 'Permanently delete the GST-TCS ledger, settings, and vendor/product GST meta when this plugin is deleted from Plugins', 'wcfm-gst-tcs' ); ?></label>
+							<p class="description"><?php esc_html_e( 'Leave this off to keep your TCS ledger and GST records for audit purposes even if the plugin is removed.', 'wcfm-gst-tcs' ); ?></p>
+						</td>
 					</tr>
 				</table>
 				<?php submit_button( __( 'Save Settings', 'wcfm-gst-tcs' ) ); ?>

@@ -80,6 +80,24 @@ class WGT_States {
 		return $code_points[ $check ];
 	}
 
+	/**
+	 * Extension point for real GSTN-registry verification. This plugin only checks
+	 * structure + the mod-36 check digit, which catches typos/fabrications but can't
+	 * confirm a GSTIN is actually registered/active — that requires a paid GSP/GSTN
+	 * API. Defaults to a pass-through (no-op) so behaviour is unchanged unless a site
+	 * wires in a provider, e.g.:
+	 *
+	 *   add_filter( 'wgt_gstin_is_registered', function( $is_registered, $gstin ) {
+	 *       return my_gsp_client()->lookup( $gstin )->active; // cache this yourself.
+	 *   }, 10, 2 );
+	 *
+	 * Only called after is_valid_gstin() already passed, so it's not hit on garbage
+	 * input. Cache aggressively in your own callback — this can run on every checkout.
+	 */
+	public static function passes_external_verification( $gstin ) {
+		return (bool) apply_filters( 'wgt_gstin_is_registered', true, $gstin );
+	}
+
 	public static function get_indian_states() {
 		if ( function_exists( 'WC' ) && WC()->countries ) {
 			$states = WC()->countries->get_states( 'IN' );
