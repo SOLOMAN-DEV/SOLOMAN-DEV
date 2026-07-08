@@ -6,7 +6,7 @@ Tested up to: 6.7
 Requires PHP: 7.4
 WC requires at least: 6.0
 WC tested up to: 9.5
-Stable tag: 1.2.0
+Stable tag: 1.2.1
 License: GPLv2 or later
 
 Adds India GST (CGST/SGST/IGST) tax calculation and GST-TCS (Section 52, CGST Act) compliance
@@ -93,6 +93,13 @@ to a WCFM Marketplace multivendor store.
   include PHPUnit.
 
 == Changelog ==
+
+= 1.2.1 =
+* Fixed a fatal error on activation: class files were only loaded on 'plugins_loaded', but
+  WordPress runs the activation hook in the same request where 'plugins_loaded' has already
+  fired without this plugin's code loaded, so the activation callback's class didn't exist
+  yet. All class files now load unconditionally and immediately; only instantiation (not
+  loading) is still gated behind the WooCommerce/WCFM dependency check.
 
 = 1.2.0 =
 * GST/GSTR-1 reports now read a `_wgt_tax_type` stamp recorded at checkout instead of

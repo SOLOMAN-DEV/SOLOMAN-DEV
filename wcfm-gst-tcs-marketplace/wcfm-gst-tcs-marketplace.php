@@ -3,7 +3,7 @@
  * Plugin Name: WCFM GST & TCS for Multivendor Marketplace
  * Plugin URI: https://example.com/wcfm-gst-tcs-marketplace
  * Description: Adds India GST (CGST/SGST/IGST) tax calculation and GST-TCS (Sec 52) compliance to a WCFM Marketplace multivendor store — per-product HSN/GST rates, vendor GSTIN capture, B2B checkout, PDF GST invoices, and GSTR-1/GSTR-8 style reports.
- * Version: 1.2.0
+ * Version: 1.2.1
  * Author: Soloman Dev
  * Text Domain: wcfm-gst-tcs
  * Domain Path: /languages
@@ -17,17 +17,43 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'WGT_VERSION', '1.2.0' );
+define( 'WGT_VERSION', '1.2.1' );
 define( 'WGT_PLUGIN_FILE', __FILE__ );
 define( 'WGT_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'WGT_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 define( 'WGT_TCS_TABLE', 'wgt_tcs_ledger' );
 
-/**
- * Every runtime piece assumes WooCommerce + WCFM Frontend Manager + WCFM Marketplace
- * are already loaded, so load order is enforced via the dependency check below
- * instead of at the top of this file.
+/*
+ * Loaded unconditionally and immediately (not deferred to plugins_loaded) because
+ * register_activation_hook()'s callback runs in the same request that first includes
+ * this file — plugins_loaded has typically already fired for the rest of the site by
+ * then, so a class only required inside a plugins_loaded callback isn't defined yet
+ * when WordPress calls the activation hook, and activation fatals with a "class not
+ * found" error. None of these files touch WooCommerce/WCFM at parse time — they only
+ * call into it from inside methods — so it's safe to load them before checking whether
+ * WooCommerce/WCFM are even active; that check still gates whether anything is
+ * *instantiated*, in init() below.
  */
+$wgt_autoload = WGT_PLUGIN_DIR . 'vendor/autoload.php';
+if ( file_exists( $wgt_autoload ) && ! class_exists( 'Dompdf\\Dompdf' ) ) {
+	require_once $wgt_autoload;
+}
+unset( $wgt_autoload );
+
+require_once WGT_PLUGIN_DIR . 'includes/class-wgt-states.php';
+require_once WGT_PLUGIN_DIR . 'includes/class-wgt-install.php';
+require_once WGT_PLUGIN_DIR . 'includes/class-wgt-admin-settings.php';
+require_once WGT_PLUGIN_DIR . 'includes/class-wgt-vendor-settings.php';
+require_once WGT_PLUGIN_DIR . 'includes/class-wgt-product-fields.php';
+require_once WGT_PLUGIN_DIR . 'includes/class-wgt-tax-engine.php';
+require_once WGT_PLUGIN_DIR . 'includes/class-wgt-tcs-engine.php';
+require_once WGT_PLUGIN_DIR . 'includes/class-wgt-invoice.php';
+require_once WGT_PLUGIN_DIR . 'includes/class-wgt-csv-export.php';
+require_once WGT_PLUGIN_DIR . 'includes/class-wgt-admin-reports.php';
+require_once WGT_PLUGIN_DIR . 'includes/class-wgt-export-job.php';
+require_once WGT_PLUGIN_DIR . 'includes/class-wgt-vendor-dashboard.php';
+require_once WGT_PLUGIN_DIR . 'includes/class-wgt-b2b-checkout.php';
+
 final class WCFM_GST_TCS_Plugin {
 
 	private static $instance = null;
@@ -62,8 +88,6 @@ final class WCFM_GST_TCS_Plugin {
 			add_action( 'admin_notices', array( $this, 'dependency_notice' ) );
 			return;
 		}
-
-		$this->includes();
 
 		load_plugin_textdomain( 'wcfm-gst-tcs', false, dirname( plugin_basename( WGT_PLUGIN_FILE ) ) . '/languages' );
 
@@ -127,26 +151,6 @@ final class WCFM_GST_TCS_Plugin {
 		<?php
 	}
 
-	private function includes() {
-		$autoload = WGT_PLUGIN_DIR . 'vendor/autoload.php';
-		if ( file_exists( $autoload ) && ! class_exists( 'Dompdf\\Dompdf' ) ) {
-			require_once $autoload;
-		}
-
-		require_once WGT_PLUGIN_DIR . 'includes/class-wgt-states.php';
-		require_once WGT_PLUGIN_DIR . 'includes/class-wgt-install.php';
-		require_once WGT_PLUGIN_DIR . 'includes/class-wgt-admin-settings.php';
-		require_once WGT_PLUGIN_DIR . 'includes/class-wgt-vendor-settings.php';
-		require_once WGT_PLUGIN_DIR . 'includes/class-wgt-product-fields.php';
-		require_once WGT_PLUGIN_DIR . 'includes/class-wgt-tax-engine.php';
-		require_once WGT_PLUGIN_DIR . 'includes/class-wgt-tcs-engine.php';
-		require_once WGT_PLUGIN_DIR . 'includes/class-wgt-invoice.php';
-		require_once WGT_PLUGIN_DIR . 'includes/class-wgt-csv-export.php';
-		require_once WGT_PLUGIN_DIR . 'includes/class-wgt-admin-reports.php';
-		require_once WGT_PLUGIN_DIR . 'includes/class-wgt-export-job.php';
-		require_once WGT_PLUGIN_DIR . 'includes/class-wgt-vendor-dashboard.php';
-		require_once WGT_PLUGIN_DIR . 'includes/class-wgt-b2b-checkout.php';
-	}
 }
 
 WCFM_GST_TCS_Plugin::instance();
