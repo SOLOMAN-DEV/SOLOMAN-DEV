@@ -285,11 +285,19 @@ class WGT_TCS_Engine {
 		return $wpdb->get_results( $sql ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery
 	}
 
-	public static function get_vendor_summary( $vendor_id, $financial_year = '' ) {
+	/**
+	 * @param string|array $filters Either a financial year string (legacy) or an args
+	 *                              array accepting 'financial_year', 'date_from', 'date_to'.
+	 */
+	public static function get_vendor_summary( $vendor_id, $filters = array() ) {
+		if ( is_string( $filters ) ) {
+			$filters = array( 'financial_year' => $filters );
+		}
+
 		$rows = self::get_ledger_rows(
-			array(
-				'vendor_id'      => $vendor_id,
-				'financial_year' => $financial_year,
+			array_merge(
+				array( 'vendor_id' => $vendor_id ),
+				$filters
 			)
 		);
 

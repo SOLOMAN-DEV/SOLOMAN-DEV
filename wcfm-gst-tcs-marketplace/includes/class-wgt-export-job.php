@@ -73,6 +73,15 @@ class WGT_Export_Job {
 
 		set_transient( 'wgt_export_queued_' . get_current_user_id(), $job_id, 5 * MINUTE_IN_SECONDS );
 
+		// admin_notices (below) only renders in wp-admin; wc_add_notice covers the
+		// frontend/My Account case (vendors triggering their own exports).
+		if ( function_exists( 'wc_add_notice' ) ) {
+			wc_add_notice(
+				__( 'This export covers a large date range, so it\'s being prepared in the background. You\'ll get an email with a download link when it\'s ready.', 'wcfm-gst-tcs' ),
+				'notice'
+			);
+		}
+
 		return true;
 	}
 
@@ -188,7 +197,7 @@ class WGT_Export_Job {
 			sprintf( '[%s] %s', wp_specialchars_decode( get_bloginfo( 'name' ) ), sprintf( __( 'Your %s export is ready', 'wcfm-gst-tcs' ), $label ) ),
 			sprintf(
 				/* translators: 1: report name, 2: download URL */
-				__( "Your requested %1\$s export has finished. Download it here (link expires in 48 hours, and only works while logged in as an administrator):\n\n%2\$s", 'wcfm-gst-tcs' ),
+				__( "Your requested %1\$s export has finished. Download it here (link expires in 48 hours, and only works while logged in as the account that requested it):\n\n%2\$s", 'wcfm-gst-tcs' ),
 				$label,
 				$url
 			)
@@ -213,13 +222,17 @@ class WGT_Export_Job {
 		if ( ! $job_id || ! isset( $_GET['_wpnonce'] ) || ! wp_verify_nonce( sanitize_text_field( wp_unslash( $_GET['_wpnonce'] ) ), 'wgt_download_export_' . $job_id ) ) {
 			wp_die( esc_html__( 'Invalid or expired download link.', 'wcfm-gst-tcs' ) );
 		}
-		if ( ! current_user_can( 'manage_woocommerce' ) ) {
-			wp_die( esc_html__( 'You do not have permission to do this.', 'wcfm-gst-tcs' ) );
-		}
 
 		$registry = get_option( self::REGISTRY_OPTION, array() );
 		if ( empty( $registry[ $job_id ] ) ) {
 			wp_die( esc_html__( 'This export has expired or does not exist. Please generate it again.', 'wcfm-gst-tcs' ) );
+		}
+
+		// The report belongs to whoever requested it (admin or vendor); anyone with
+		// manage_woocommerce can also fetch it, e.g. to help a vendor troubleshoot.
+		$is_owner = get_current_user_id() && get_current_user_id() === (int) $registry[ $job_id ]['user_id'];
+		if ( ! $is_owner && ! current_user_can( 'manage_woocommerce' ) ) {
+			wp_die( esc_html__( 'You do not have permission to do this.', 'wcfm-gst-tcs' ) );
 		}
 
 		$dir  = $this->export_dir();

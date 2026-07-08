@@ -6,7 +6,7 @@ Tested up to: 6.7
 Requires PHP: 7.4
 WC requires at least: 6.0
 WC tested up to: 9.5
-Stable tag: 1.2.1
+Stable tag: 1.3.0
 License: GPLv2 or later
 
 Adds India GST (CGST/SGST/IGST) tax calculation and GST-TCS (Section 52, CGST Act) compliance
@@ -39,8 +39,12 @@ to a WCFM Marketplace multivendor store.
   the vendor's state) per vendor per order. Cancelled/refunded/failed orders reverse the entry.
 * Admin reports: Vendor GST Tax Summary and a GSTR-8 style TCS report, both date-range and
   vendor filterable, with CSV export.
-* A vendor-facing "GST & TCS" tab under My Account showing their own GST collected and TCS
-  deducted, with CSV export, plus a `[wgt_vendor_gst_report]` shortcode for custom placement.
+* A vendor-facing "GST & TCS" tab under My Account, date-range filterable, with two CSV
+  downloads: a summary report (orders, net taxable value, GST collected, TCS deducted) and a
+  detailed invoice-level report (every order line: HSN, taxable value, CGST/SGST/IGST, buyer
+  name/GSTIN for business purchases) for the vendor's own bookkeeping/accountant — plus a
+  `[wgt_vendor_gst_report]` shortcode for custom placement. Large date ranges queue in the
+  background and email a download link, same as the admin exports.
 * A printable GST invoice per order (HSN, per-vendor tax breakup, GSTIN), viewable in the
   browser or downloaded as a PDF, linked from the order-received/order-details page.
 * Manual e-invoice fields (IRN, Ack No, Ack Date, QR text) per vendor per order, for stores
@@ -93,6 +97,15 @@ to a WCFM Marketplace multivendor store.
   include PHPUnit.
 
 == Changelog ==
+
+= 1.3.0 =
+* Vendor "GST & TCS" account tab now uses a From/To date-range filter (replacing the old
+  Financial Year text box) and adds a second download: a detailed invoice-level CSV (HSN,
+  taxable value, CGST/SGST/IGST, buyer name/GSTIN for business purchases) alongside the
+  existing summary report — every export is always forced to the logged-in vendor's own ID.
+* Large vendor-triggered exports now use the same background-job + email-link path as admin
+  exports; fixed the download-link permission check so the requesting vendor (not just
+  administrators) can retrieve their own queued file, and added a frontend notice for it.
 
 = 1.2.1 =
 * Fixed a fatal error on activation: class files were only loaded on 'plugins_loaded', but
