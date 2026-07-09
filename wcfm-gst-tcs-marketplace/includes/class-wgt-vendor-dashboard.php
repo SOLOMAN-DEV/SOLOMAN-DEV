@@ -4,18 +4,24 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 /**
- * Vendor-facing GST/TCS reports. Delivered as a WooCommerce My Account endpoint
- * (stable, version-independent WooCommerce API) rather than hooking into WCFM's
- * own dashboard-menu internals, so it keeps working across WCFM versions. A
- * shortcode is also provided for admins who want to surface it elsewhere,
- * e.g. linked from a custom WCFM dashboard menu item.
+ * Vendor-facing GST/TCS reports, delivered two ways so vendors find them wherever they
+ * actually work: a WooCommerce My Account endpoint (stable, version-independent WC API),
+ * and a tab inside the WCFM vendor dashboard itself (most WCFM vendors rarely visit My
+ * Account at all — they live in the WCFM dashboard). Both render the exact same content via
+ * render_shortcode(), which is also exposed as the [wgt_vendor_gst_report] shortcode.
+ *
+ * The WCFM integration uses WCFM's own extension points — 'wcfm_query_vars' to register the
+ * endpoint, 'wcfm_menus' to add the sidebar item, 'wcfm_load_views' to render content for it
+ * (this is the hook WCFM itself falls back to for any endpoint it doesn't know internally) —
+ * rather than reading/writing WCFM's private view templates directly.
  *
  * Every export here forces vendor_id to the logged-in user's own ID server-side —
  * a vendor can never pull another vendor's figures by tampering with form fields.
  */
 class WGT_Vendor_Dashboard {
 
-	const ENDPOINT = 'gst-tcs-report';
+	const ENDPOINT      = 'gst-tcs-report';
+	const WCFM_ENDPOINT = 'wgt-reports';
 
 	private static $instance = null;
 
@@ -35,10 +41,75 @@ class WGT_Vendor_Dashboard {
 
 		add_action( 'admin_post_wgt_export_vendor_tcs', array( $this, 'export_own_tcs_csv' ) );
 		add_action( 'admin_post_wgt_export_vendor_invoices', array( $this, 'export_own_invoices_csv' ) );
+
+		// WCFM vendor dashboard tab (best-effort: only takes effect on sites that have
+		// WCFM Marketplace active and firing these hooks; harmless no-op otherwise).
+		add_action( 'init', array( $this, 'add_wcfm_endpoint' ), 5 );
+		add_filter( 'wcfm_query_vars', array( $this, 'add_wcfm_query_var' ) );
+		add_filter( 'wcfm_menus', array( $this, 'add_wcfm_menu_item' ) );
+		add_filter( 'wcfm_endpoint_' . self::WCFM_ENDPOINT . '_title', array( $this, 'wcfm_page_title' ) );
+		add_action( 'wcfm_load_views', array( $this, 'render_wcfm_view' ) );
 	}
 
 	public function add_endpoint() {
 		add_rewrite_endpoint( self::ENDPOINT, EP_ROOT | EP_PAGES );
+	}
+
+	/**
+	 * Registers the WCFM dashboard endpoint. Guarded by a one-time flush so sites that
+	 * update the plugin in place (no re-activation, so register_activation_hook never
+	 * fires again) still get a working permalink instead of a 404 until they happen to
+	 * resave Settings > Permalinks themselves.
+	 */
+	public function add_wcfm_endpoint() {
+		add_rewrite_endpoint( self::WCFM_ENDPOINT, EP_ALL );
+
+		if ( 'yes' !== get_option( 'wgt_wcfm_endpoint_flushed' ) ) {
+			flush_rewrite_rules( false );
+			update_option( 'wgt_wcfm_endpoint_flushed', 'yes' );
+		}
+	}
+
+	public function add_wcfm_query_var( $query_vars ) {
+		if ( is_array( $query_vars ) ) {
+			$query_vars[ self::WCFM_ENDPOINT ] = self::WCFM_ENDPOINT;
+		}
+		return $query_vars;
+	}
+
+	public function add_wcfm_menu_item( $wcfm_menus ) {
+		if ( ! is_array( $wcfm_menus ) || ! $this->current_user_is_vendor() ) {
+			return $wcfm_menus;
+		}
+
+		$url = function_exists( 'wcfm_get_endpoint_url' )
+			? wcfm_get_endpoint_url( self::WCFM_ENDPOINT )
+			: add_query_arg( self::WCFM_ENDPOINT, '1' );
+
+		$wcfm_menus[ self::WCFM_ENDPOINT ] = array(
+			'label' => __( 'GST & TCS', 'wcfm-gst-tcs' ),
+			'url'   => $url,
+			'icon'  => 'money',
+		);
+
+		return $wcfm_menus;
+	}
+
+	public function wcfm_page_title( $title ) {
+		return __( 'GST & TCS Reports', 'wcfm-gst-tcs' );
+	}
+
+	/**
+	 * Fires for every WCFM dashboard endpoint WCFM doesn't handle internally
+	 * (its own dispatcher's default case) — we only act when it's ours.
+	 */
+	public function render_wcfm_view( $end_point ) {
+		if ( self::WCFM_ENDPOINT !== $end_point ) {
+			return;
+		}
+		echo '<div class="wcfm-content-inner wgt-wcfm-reports">';
+		echo $this->render_shortcode( array() ); // phpcs:ignore WordPress.Security.EscapeOutput
+		echo '</div>';
 	}
 
 	private function current_user_is_vendor() {

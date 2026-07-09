@@ -6,7 +6,7 @@ Tested up to: 6.7
 Requires PHP: 7.4
 WC requires at least: 6.0
 WC tested up to: 9.5
-Stable tag: 1.4.1
+Stable tag: 1.5.0
 License: GPLv2 or later
 
 Adds India GST (CGST/SGST/IGST) tax calculation and GST-TCS (Section 52, CGST Act) compliance
@@ -83,6 +83,12 @@ to a WCFM Marketplace multivendor store.
   line-item invoice CSV attached, for their own GST filing. Configurable send day, an option
   to skip vendors with no sales, and a "Send Now" button to test or catch up a missed run.
   Scheduled via WooCommerce's Action Scheduler using a real day-of-month cron expression.
+* The same vendor reports (summary + detailed CSV downloads) also appear as a "GST & TCS" tab
+  inside the WCFM vendor dashboard itself (Settings > Products > Orders sidebar), not only
+  under WooCommerce My Account — most WCFM vendors never visit My Account at all. Registered
+  via WCFM's own extension points (wcfm_menus, wcfm_query_vars, wcfm_load_views), with an
+  automatic one-time permalink flush so it works immediately even on a site upgrading the
+  plugin in place.
 
 == Notes ==
 
@@ -106,6 +112,14 @@ to a WCFM Marketplace multivendor store.
   include PHPUnit.
 
 == Changelog ==
+
+= 1.5.0 =
+* Vendor GST/TCS reports (summary + detailed CSV downloads) now also appear inside the WCFM
+  vendor dashboard itself as a "GST & TCS" sidebar tab, using WCFM's own extension hooks
+  (wcfm_menus/wcfm_query_vars/wcfm_load_views) — previously only reachable via WooCommerce's
+  My Account page, which most WCFM vendors rarely use. Both surfaces render identical content.
+  Includes a one-time automatic permalink flush so the new tab works right away for sites
+  updating the plugin in place, not just fresh installs.
 
 = 1.4.1 =
 * The detailed/GSTR-1 sales report (admin export, vendor download, and monthly email

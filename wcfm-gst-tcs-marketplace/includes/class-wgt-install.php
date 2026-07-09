@@ -10,7 +10,9 @@ class WGT_Install {
 		self::create_default_options();
 
 		add_rewrite_endpoint( 'gst-tcs-report', EP_ROOT | EP_PAGES );
+		add_rewrite_endpoint( 'wgt-reports', EP_ALL );
 		flush_rewrite_rules();
+		update_option( 'wgt_wcfm_endpoint_flushed', 'yes' );
 	}
 
 	private static function create_tables() {
