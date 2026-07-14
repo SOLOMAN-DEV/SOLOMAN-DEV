@@ -6,7 +6,7 @@ Tested up to: 6.7
 Requires PHP: 7.4
 WC requires at least: 6.0
 WC tested up to: 9.5
-Stable tag: 1.5.0
+Stable tag: 1.6.0
 License: GPLv2 or later
 
 Adds India GST (CGST/SGST/IGST) tax calculation and GST-TCS (Section 52, CGST Act) compliance
@@ -38,7 +38,11 @@ to a WCFM Marketplace multivendor store.
   value and 1% TCS (split CGST+SGST or IGST by comparing the marketplace operator's state to
   the vendor's state) per vendor per order. Cancelled/refunded/failed orders reverse the entry.
 * Admin reports: Vendor GST Tax Summary and a GSTR-8 style TCS report, both date-range and
-  vendor filterable, with CSV export.
+  vendor filterable, with CSV export, plus a one-click "Previous Month" quick filter on every
+  report page. GST sales and GSTR-1 exports both split B2B (registered buyer) and B2C figures
+  into separate CSV downloads, matching how GSTR-1 itself must be filed; the TCS report shows
+  the same B2B/B2C breakdown for the operator's own reconciliation (GSTR-8 filing itself is
+  per-vendor only and doesn't require the split).
 * A vendor-facing "GST & TCS" tab under My Account, date-range filterable, with two CSV
   downloads: a summary report (orders, net taxable value, GST collected, TCS deducted) and a
   detailed sales report (every order line, with full order details — customer name/email/
@@ -46,7 +50,9 @@ to a WCFM Marketplace multivendor store.
   pricing, subtotal/discount/shipping/order total — plus HSN, taxable value, CGST/SGST/IGST
   and buyer GSTIN for business purchases) for the vendor's own bookkeeping/accountant — plus a
   `[wgt_vendor_gst_report]` shortcode for custom placement. Large date ranges queue in the
-  background and email a download link, same as the admin exports.
+  background and email a download link, same as the admin exports. Includes the same
+  "Previous Month" quick filter and separate B2B/B2C detailed-invoice CSV downloads as the
+  admin reports, since GSTR-1 filing requires those figures reported separately.
 * A printable GST invoice per order (HSN, per-vendor tax breakup, GSTIN), viewable in the
   browser or downloaded as a PDF, linked from the order-received/order-details page.
 * Manual e-invoice fields (IRN, Ack No, Ack Date, QR text) per vendor per order, for stores
@@ -61,8 +67,10 @@ to a WCFM Marketplace multivendor store.
 * A "Compliance check" panel on Settings > GST & TCS flagging vendors missing a GSTIN and
   published products missing an HSN/SAC code, plus the same nudge on the vendor's own
   GST & TCS account tab.
-* HSN/SAC can be made mandatory to publish a product (Settings > GST & TCS), enforced for
-  both the WCFM frontend product form and wp-admin.
+* HSN/SAC codes must be exactly 6 digits when entered — enforced on save in both the WCFM
+  frontend product form and wp-admin, with an admin product-list warning for any legacy value
+  saved before this rule existed. Requiring an HSN/SAC at all to publish a product is a
+  separate, still-optional toggle (Settings > GST & TCS).
 * Partial refunds recompute each affected vendor's TCS ledger row from WooCommerce's own
   per-item refunded amounts, instead of only reacting to a full order cancellation.
 * Declares WooCommerce High-Performance Order Storage (HPOS) compatibility.
@@ -112,6 +120,24 @@ to a WCFM Marketplace multivendor store.
   include PHPUnit.
 
 == Changelog ==
+
+= 1.6.0 =
+* Added a one-click "Previous Month" quick filter to every report page (admin GST report,
+  admin TCS report, admin GSTR-1 export, and the vendor-facing GST & TCS tab/dashboard),
+  filling in the exact From/To dates for last calendar month so month-end GST filing doesn't
+  require manually working out date boundaries.
+* GST Tax Summary and GSTR-1 exports (both admin and vendor-facing) now show a B2B/B2C
+  breakdown and offer separate "B2B Only" / "B2C Only" CSV downloads, alongside the existing
+  combined export — GSTR-1 must be filed with B2B (registered buyer) and B2C (unregistered)
+  supplies reported in separate sections, so these line up directly with that filing.
+* The GSTR-8 style TCS report now also shows a B2B/B2C breakdown table and separate B2B/B2C
+  CSV exports, with a note that GSTR-8 itself is filed per-vendor only and doesn't require
+  this split — it's provided for the operator's own reconciliation against each vendor's
+  GSTR-1.
+* HSN/SAC codes must now be exactly 6 digits: enforced on save (WCFM frontend and wp-admin),
+  with `maxlength`/`pattern` on both input fields and a legacy-data warning icon in the admin
+  product list for any previously saved HSN that isn't 6 digits. This is separate from, and
+  applies regardless of, the existing "HSN mandatory to publish" toggle.
 
 = 1.5.0 =
 * Vendor GST/TCS reports (summary + detailed CSV downloads) now also appear inside the WCFM

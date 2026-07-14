@@ -103,10 +103,7 @@ class WGT_Monthly_Email {
 	}
 
 	private function previous_month_range() {
-		return array(
-			gmdate( 'Y-m-01', strtotime( 'first day of last month' ) ),
-			gmdate( 'Y-m-t', strtotime( 'last day of last month' ) ),
-		);
+		return WGT_Admin_Reports::previous_month_range();
 	}
 
 	private function send_for_period( $date_from, $date_to ) {

@@ -45,7 +45,7 @@ class WGT_Export_Job {
 	 * Returns true (and queues a background job) if the range is large enough to warrant
 	 * it; the caller should stream synchronously as before when this returns false.
 	 */
-	public function maybe_queue( $report_type, $date_from, $date_to, $vendor_id ) {
+	public function maybe_queue( $report_type, $date_from, $date_to, $vendor_id, $type_filter = '' ) {
 		if ( ! self::is_available() ) {
 			return false;
 		}
@@ -64,6 +64,7 @@ class WGT_Export_Job {
 					'date_from'   => $date_from,
 					'date_to'     => $date_to,
 					'vendor_id'   => $vendor_id,
+					'type_filter' => $type_filter,
 					'job_id'      => $job_id,
 					'user_id'     => get_current_user_id(),
 				),
@@ -94,6 +95,7 @@ class WGT_Export_Job {
 		$date_from   = $args['date_from'];
 		$date_to     = $args['date_to'];
 		$vendor_id   = (int) $args['vendor_id'];
+		$type_filter = isset( $args['type_filter'] ) ? $args['type_filter'] : '';
 		$job_id      = $args['job_id'];
 		$user_id     = (int) $args['user_id'];
 
@@ -102,7 +104,7 @@ class WGT_Export_Job {
 			return;
 		}
 
-		$filename = 'wgt-' . sanitize_key( $report_type ) . '-' . $job_id . '.csv';
+		$filename = 'wgt-' . sanitize_key( $report_type ) . ( $type_filter ? '-' . sanitize_key( $type_filter ) : '' ) . '-' . $job_id . '.csv';
 		$path     = trailingslashit( $dir ) . $filename;
 
 		$fh = fopen( $path, 'w' );
@@ -113,25 +115,49 @@ class WGT_Export_Job {
 
 		if ( 'gst_report' === $report_type ) {
 			fputcsv( $fh, array( 'Vendor', 'Vendor ID', 'Orders', 'Net Taxable Value', 'CGST', 'SGST', 'IGST', 'Total GST' ) );
-			$rows = WGT_Admin_Reports::gather_gst_report( $date_from, $date_to, $vendor_id );
-			foreach ( $rows as $vid => $row ) {
-				fputcsv(
-					$fh,
-					array(
-						WGT_Admin_Reports::vendor_label( $vid ),
-						$vid,
-						$row['order_count'],
-						number_format( $row['net'], 2, '.', '' ),
-						number_format( $row['cgst'], 2, '.', '' ),
-						number_format( $row['sgst'], 2, '.', '' ),
-						number_format( $row['igst'], 2, '.', '' ),
-						number_format( $row['gst'], 2, '.', '' ),
-					)
-				);
+
+			if ( $type_filter ) {
+				$rows = WGT_Admin_Reports::gather_gst_report_by_type( $date_from, $date_to, $vendor_id );
+				foreach ( $rows as $vid => $types ) {
+					$row = $types[ $type_filter ];
+					if ( 0 === $row['order_count'] ) {
+						continue;
+					}
+					fputcsv(
+						$fh,
+						array(
+							WGT_Admin_Reports::vendor_label( $vid ),
+							$vid,
+							$row['order_count'],
+							number_format( $row['net'], 2, '.', '' ),
+							number_format( $row['cgst'], 2, '.', '' ),
+							number_format( $row['sgst'], 2, '.', '' ),
+							number_format( $row['igst'], 2, '.', '' ),
+							number_format( $row['gst'], 2, '.', '' ),
+						)
+					);
+				}
+			} else {
+				$rows = WGT_Admin_Reports::gather_gst_report( $date_from, $date_to, $vendor_id );
+				foreach ( $rows as $vid => $row ) {
+					fputcsv(
+						$fh,
+						array(
+							WGT_Admin_Reports::vendor_label( $vid ),
+							$vid,
+							$row['order_count'],
+							number_format( $row['net'], 2, '.', '' ),
+							number_format( $row['cgst'], 2, '.', '' ),
+							number_format( $row['sgst'], 2, '.', '' ),
+							number_format( $row['igst'], 2, '.', '' ),
+							number_format( $row['gst'], 2, '.', '' ),
+						)
+					);
+				}
 			}
 		} elseif ( 'gstr1' === $report_type ) {
-			fputcsv( $fh, array( 'Vendor', 'Vendor GSTIN', 'Order ID', 'Invoice Date', 'Type', 'Buyer Name/Company', 'Buyer GSTIN', 'Place of Supply', 'HSN/SAC', 'Taxable Value', 'GST Rate', 'CGST', 'SGST', 'IGST', 'Invoice Value' ) );
-			foreach ( WGT_Admin_Reports::gather_gstr1_rows( $date_from, $date_to, $vendor_id ) as $row ) {
+			fputcsv( $fh, WGT_Admin_Reports::gstr1_headers() );
+			foreach ( WGT_Admin_Reports::gather_gstr1_rows( $date_from, $date_to, $vendor_id, $type_filter ) as $row ) {
 				fputcsv( $fh, $row );
 			}
 		}

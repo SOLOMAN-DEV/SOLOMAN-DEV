@@ -193,6 +193,12 @@ class WGT_Vendor_Dashboard {
 			? WGT_TCS_Engine::get_vendor_summary( $vendor_id, array( 'date_from' => $date_from, 'date_to' => $date_to ) )
 			: array();
 
+		$empty_type_row = array( 'order_count' => 0, 'net' => 0.0, 'gst' => 0.0, 'cgst' => 0.0, 'sgst' => 0.0, 'igst' => 0.0 );
+		$sales_by_type  = WGT_Admin_Reports::gather_gst_report_by_type( $date_from, $date_to, $vendor_id );
+		$by_type        = isset( $sales_by_type[ $vendor_id ] )
+			? $sales_by_type[ $vendor_id ]
+			: array( 'B2B' => $empty_type_row, 'B2C' => $empty_type_row );
+
 		$gst         = WGT_Vendor_Settings::get_vendor_gst( $vendor_id );
 		$missing_hsn = class_exists( 'WGT_Product_Fields' ) ? WGT_Product_Fields::count_missing_hsn( $vendor_id ) : 0;
 
@@ -220,6 +226,7 @@ class WGT_Vendor_Dashboard {
 				<label><?php esc_html_e( 'From', 'wcfm-gst-tcs' ); ?> <input type="date" name="wgt_date_from" value="<?php echo esc_attr( $date_from ); ?>" /></label>
 				<label><?php esc_html_e( 'To', 'wcfm-gst-tcs' ); ?> <input type="date" name="wgt_date_to" value="<?php echo esc_attr( $date_to ); ?>" /></label>
 				<button type="submit"><?php esc_html_e( 'Filter', 'wcfm-gst-tcs' ); ?></button>
+				<?php echo $this->previous_month_link(); // phpcs:ignore WordPress.Security.EscapeOutput ?>
 			</form>
 
 			<h3><?php esc_html_e( 'Sales Summary', 'wcfm-gst-tcs' ); ?></h3>
@@ -231,6 +238,36 @@ class WGT_Vendor_Dashboard {
 					<tr><th><?php esc_html_e( 'CGST', 'wcfm-gst-tcs' ); ?></th><td><?php echo wp_kses_post( wc_price( $sales['cgst'] ) ); ?></td></tr>
 					<tr><th><?php esc_html_e( 'SGST', 'wcfm-gst-tcs' ); ?></th><td><?php echo wp_kses_post( wc_price( $sales['sgst'] ) ); ?></td></tr>
 					<tr><th><?php esc_html_e( 'IGST', 'wcfm-gst-tcs' ); ?></th><td><?php echo wp_kses_post( wc_price( $sales['igst'] ) ); ?></td></tr>
+				</tbody>
+			</table>
+
+			<h3><?php esc_html_e( 'B2B / B2C Breakdown', 'wcfm-gst-tcs' ); ?></h3>
+			<p class="description"><?php esc_html_e( 'GSTR-1 reports B2B (registered buyers) and B2C (unregistered/consumer) supplies separately — use these figures for your own filing.', 'wcfm-gst-tcs' ); ?></p>
+			<table class="shop_table">
+				<thead>
+					<tr>
+						<th><?php esc_html_e( 'Type', 'wcfm-gst-tcs' ); ?></th>
+						<th><?php esc_html_e( 'Orders', 'wcfm-gst-tcs' ); ?></th>
+						<th><?php esc_html_e( 'Net Taxable Value', 'wcfm-gst-tcs' ); ?></th>
+						<th><?php esc_html_e( 'CGST', 'wcfm-gst-tcs' ); ?></th>
+						<th><?php esc_html_e( 'SGST', 'wcfm-gst-tcs' ); ?></th>
+						<th><?php esc_html_e( 'IGST', 'wcfm-gst-tcs' ); ?></th>
+						<th><?php esc_html_e( 'Total GST', 'wcfm-gst-tcs' ); ?></th>
+					</tr>
+				</thead>
+				<tbody>
+					<?php foreach ( array( 'B2B', 'B2C' ) as $type ) : ?>
+						<?php $row = $by_type[ $type ]; ?>
+						<tr>
+							<td><?php echo esc_html( $type ); ?></td>
+							<td><?php echo esc_html( $row['order_count'] ); ?></td>
+							<td><?php echo wp_kses_post( wc_price( $row['net'] ) ); ?></td>
+							<td><?php echo wp_kses_post( wc_price( $row['cgst'] ) ); ?></td>
+							<td><?php echo wp_kses_post( wc_price( $row['sgst'] ) ); ?></td>
+							<td><?php echo wp_kses_post( wc_price( $row['igst'] ) ); ?></td>
+							<td><?php echo wp_kses_post( wc_price( $row['gst'] ) ); ?></td>
+						</tr>
+					<?php endforeach; ?>
 				</tbody>
 			</table>
 
@@ -259,17 +296,49 @@ class WGT_Vendor_Dashboard {
 				</form>
 			<?php endif; ?>
 
-			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="display:inline-block;">
+			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="display:inline-block;margin-right:10px;">
 				<input type="hidden" name="action" value="wgt_export_vendor_invoices" />
 				<input type="hidden" name="date_from" value="<?php echo esc_attr( $date_from ); ?>" />
 				<input type="hidden" name="date_to" value="<?php echo esc_attr( $date_to ); ?>" />
 				<?php wp_nonce_field( 'wgt_export_vendor_invoices' ); ?>
-				<button type="submit" class="button"><?php esc_html_e( 'Detailed Invoice Report (CSV)', 'wcfm-gst-tcs' ); ?></button>
+				<button type="submit" class="button"><?php esc_html_e( 'Detailed Invoice Report — All (CSV)', 'wcfm-gst-tcs' ); ?></button>
 			</form>
-			<p class="description"><?php esc_html_e( 'The detailed report lists every order line item with full order details — customer, addresses, payment method, product, quantity, pricing, HSN/SAC code, taxable value, CGST/SGST/IGST and buyer details for business purchases — for your own bookkeeping or your accountant.', 'wcfm-gst-tcs' ); ?></p>
+			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="display:inline-block;margin-right:10px;">
+				<input type="hidden" name="action" value="wgt_export_vendor_invoices" />
+				<input type="hidden" name="type" value="B2B" />
+				<input type="hidden" name="date_from" value="<?php echo esc_attr( $date_from ); ?>" />
+				<input type="hidden" name="date_to" value="<?php echo esc_attr( $date_to ); ?>" />
+				<?php wp_nonce_field( 'wgt_export_vendor_invoices' ); ?>
+				<button type="submit" class="button"><?php esc_html_e( 'B2B Only (CSV)', 'wcfm-gst-tcs' ); ?></button>
+			</form>
+			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="display:inline-block;">
+				<input type="hidden" name="action" value="wgt_export_vendor_invoices" />
+				<input type="hidden" name="type" value="B2C" />
+				<input type="hidden" name="date_from" value="<?php echo esc_attr( $date_from ); ?>" />
+				<input type="hidden" name="date_to" value="<?php echo esc_attr( $date_to ); ?>" />
+				<?php wp_nonce_field( 'wgt_export_vendor_invoices' ); ?>
+				<button type="submit" class="button"><?php esc_html_e( 'B2C Only (CSV)', 'wcfm-gst-tcs' ); ?></button>
+			</form>
+			<p class="description"><?php esc_html_e( 'The detailed report lists every order line item with full order details — customer, addresses, payment method, product, quantity, pricing, HSN/SAC code, taxable value, CGST/SGST/IGST and buyer details for business purchases — for your own bookkeeping, your accountant, or filing GSTR-1 (B2B and B2C are reported separately).', 'wcfm-gst-tcs' ); ?></p>
 		</div>
 		<?php
 		return ob_get_clean();
+	}
+
+	/**
+	 * Links back to the current page (My Account tab, WCFM tab, or a page with the
+	 * shortcode — whichever this is being rendered on) with the date range set to last
+	 * calendar month, the cadence GST/TCS filing actually runs on.
+	 */
+	private function previous_month_link() {
+		list( $date_from, $date_to ) = WGT_Admin_Reports::previous_month_range();
+		$url = add_query_arg(
+			array(
+				'wgt_date_from' => $date_from,
+				'wgt_date_to'   => $date_to,
+			)
+		);
+		return '<a href="' . esc_url( $url ) . '" class="button">' . esc_html__( 'Previous Month', 'wcfm-gst-tcs' ) . '</a>';
 	}
 
 	private function get_export_date_range() {
@@ -334,16 +403,18 @@ class WGT_Vendor_Dashboard {
 		}
 
 		list( $date_from, $date_to ) = $this->get_export_date_range();
+		$type = isset( $_POST['type'] ) ? sanitize_text_field( wp_unslash( $_POST['type'] ) ) : '';
+		$type = in_array( $type, array( 'B2B', 'B2C' ), true ) ? $type : '';
 
-		if ( class_exists( 'WGT_Export_Job' ) && WGT_Export_Job::instance()->maybe_queue( 'gstr1', $date_from, $date_to, $vendor_id ) ) {
+		if ( class_exists( 'WGT_Export_Job' ) && WGT_Export_Job::instance()->maybe_queue( 'gstr1', $date_from, $date_to, $vendor_id, $type ) ) {
 			wp_safe_redirect( wp_get_referer() ? wp_get_referer() : wc_get_account_endpoint_url( self::ENDPOINT ) );
 			exit;
 		}
 
-		$rows = WGT_Admin_Reports::gather_gstr1_rows( $date_from, $date_to, $vendor_id );
+		$rows = WGT_Admin_Reports::gather_gstr1_rows( $date_from, $date_to, $vendor_id, $type );
 
 		WGT_CSV_Export::stream(
-			'my-invoice-report-' . $date_from . '-to-' . $date_to,
+			'my-invoice-report-' . ( $type ? strtolower( $type ) . '-' : '' ) . $date_from . '-to-' . $date_to,
 			WGT_Admin_Reports::gstr1_headers(),
 			$rows
 		);

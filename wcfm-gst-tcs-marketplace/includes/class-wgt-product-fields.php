@@ -38,11 +38,20 @@ class WGT_Product_Fields {
 		add_filter( 'manage_edit-product_columns', array( $this, 'add_product_column' ) );
 		add_action( 'manage_product_posts_custom_column', array( $this, 'render_product_column' ), 10, 2 );
 
-		// Blocks publishing without an HSN/SAC code when Settings > GST & TCS requires one,
+		// Blocks publishing if the HSN/SAC code is missing (when Settings > GST & TCS
+		// requires one) or malformed (a non-empty HSN must always be exactly 6 digits),
 		// covering both the WCFM frontend form and wp-admin (both post 'wgt_hsn_code').
-		add_filter( 'wp_insert_post_data', array( $this, 'enforce_hsn_mandatory' ), 10, 2 );
+		add_filter( 'wp_insert_post_data', array( $this, 'enforce_hsn_rules' ), 10, 2 );
 		add_filter( 'redirect_post_location', array( $this, 'add_hsn_error_query_arg' ) );
 		add_action( 'admin_notices', array( $this, 'render_hsn_error_notice' ) );
+	}
+
+	/**
+	 * A non-empty HSN must be exactly 6 digits. Whether an HSN is required at all is a
+	 * separate, admin-configurable rule (Settings > GST & TCS > "Require HSN/SAC code").
+	 */
+	public static function is_valid_hsn( $hsn ) {
+		return (bool) preg_match( '/^\d{6}$/', (string) $hsn );
 	}
 
 	public static function get_hsn( $product_id ) {
@@ -66,7 +75,7 @@ class WGT_Product_Fields {
 			WHERE p.post_type = 'product' AND p.post_status = 'publish' {$author_clause}
 			AND NOT EXISTS (
 				SELECT 1 FROM {$wpdb->postmeta} pm
-				WHERE pm.post_id = p.ID AND pm.meta_key = %s AND pm.meta_value != ''
+				WHERE pm.post_id = p.ID AND pm.meta_key = %s AND pm.meta_value REGEXP '^[0-9]{6}$'
 			)";
 		$args[] = self::HSN_META;
 
@@ -105,12 +114,13 @@ class WGT_Product_Fields {
 		$rate = get_post_meta( $product_id, self::RATE_META, true );
 
 		$general_fields['wgt_hsn_code'] = array(
-			'label' => __( 'HSN/SAC Code', 'wcfm-gst-tcs' ),
-			'name'  => 'wgt_hsn_code',
-			'type'  => 'text',
-			'value' => $hsn,
-			'class' => 'wgt-field wgt-hsn-input',
-			'desc'  => __( 'Harmonized System of Nomenclature code for this product/service.', 'wcfm-gst-tcs' ),
+			'label'             => __( 'HSN/SAC Code', 'wcfm-gst-tcs' ),
+			'name'              => 'wgt_hsn_code',
+			'type'              => 'text',
+			'value'             => $hsn,
+			'class'             => 'wgt-field wgt-hsn-input',
+			'custom_attributes' => array( 'maxlength' => 6, 'pattern' => '[0-9]{6}' ),
+			'desc'              => __( 'Harmonized System of Nomenclature code — exactly 6 digits.', 'wcfm-gst-tcs' ),
 		);
 
 		$general_fields['wgt_gst_rate'] = array(
@@ -140,11 +150,23 @@ class WGT_Product_Fields {
 		}
 
 		if ( isset( $_POST['wgt_hsn_code'] ) ) {
-			update_post_meta( $product_id, self::HSN_META, $this->sanitize_hsn( $_POST['wgt_hsn_code'] ) );
+			$this->save_hsn( $product_id, $_POST['wgt_hsn_code'] );
 		}
 
 		if ( isset( $_POST['wgt_gst_rate'] ) && '' !== $_POST['wgt_gst_rate'] ) {
 			update_post_meta( $product_id, self::RATE_META, $this->sanitize_rate( $_POST['wgt_gst_rate'] ) );
+		}
+	}
+
+	/**
+	 * Only ever persists an empty value or a valid 6-digit HSN — a malformed value (wrong
+	 * length, non-digits) is silently dropped here rather than saved, and enforce_hsn_rules()
+	 * is what actually blocks the product from publishing and tells the user why.
+	 */
+	private function save_hsn( $product_id, $raw_value ) {
+		$hsn = $this->sanitize_hsn( $raw_value );
+		if ( '' === $hsn || self::is_valid_hsn( $hsn ) ) {
+			update_post_meta( $product_id, self::HSN_META, $hsn );
 		}
 	}
 
@@ -156,8 +178,8 @@ class WGT_Product_Fields {
 		?>
 		<div class="options_group wgt-product-fields">
 			<p class="form-field wgt_hsn_code_field">
-				<label for="wgt_hsn_code"><?php esc_html_e( 'HSN/SAC Code', 'wcfm-gst-tcs' ); ?></label>
-				<input type="text" class="short" id="wgt_hsn_code" name="wgt_hsn_code" value="<?php echo esc_attr( $hsn ); ?>" />
+				<label for="wgt_hsn_code"><?php esc_html_e( 'HSN/SAC Code (6 digits)', 'wcfm-gst-tcs' ); ?></label>
+				<input type="text" class="short" id="wgt_hsn_code" name="wgt_hsn_code" maxlength="6" pattern="[0-9]{6}" value="<?php echo esc_attr( $hsn ); ?>" />
 			</p>
 			<p class="form-field wgt_gst_rate_field">
 				<label for="wgt_gst_rate"><?php esc_html_e( 'GST Rate (%)', 'wcfm-gst-tcs' ); ?></label>
@@ -174,7 +196,7 @@ class WGT_Product_Fields {
 
 	public function save_admin_fields( $post_id ) {
 		if ( isset( $_POST['wgt_hsn_code'] ) ) {
-			update_post_meta( $post_id, self::HSN_META, $this->sanitize_hsn( $_POST['wgt_hsn_code'] ) );
+			$this->save_hsn( $post_id, $_POST['wgt_hsn_code'] );
 		}
 
 		if ( isset( $_POST['wgt_gst_rate'] ) && '' !== $_POST['wgt_gst_rate'] ) {
@@ -202,16 +224,25 @@ class WGT_Product_Fields {
 			return;
 		}
 
-		echo esc_html( $hsn ? $hsn : '—' ) . ' / ' . esc_html( '' !== $rate ? $rate . '%' : '—' );
+		$hsn_display = '—';
+		if ( $hsn ) {
+			$hsn_display = self::is_valid_hsn( $hsn )
+				? esc_html( $hsn )
+				: '<span style="color:#b32d2e;" title="' . esc_attr__( 'HSN must be exactly 6 digits', 'wcfm-gst-tcs' ) . '">' . esc_html( $hsn ) . ' ⚠</span>';
+		}
+
+		echo wp_kses_post( $hsn_display ) . ' / ' . esc_html( '' !== $rate ? $rate . '%' : '—' );
 	}
 
 	/**
-	 * Forces a product back to 'pending' instead of publishing if it's missing an
-	 * HSN/SAC code and Settings > GST & TCS > "Require HSN/SAC code" is on. Only acts
-	 * when 'wgt_hsn_code' was actually part of the submitted form (our own product-manage
-	 * forms), so REST/bulk/programmatic saves that don't touch this field are left alone.
+	 * Forces a product back to 'pending' instead of publishing when its HSN/SAC is either
+	 * missing (only blocked if Settings > GST & TCS > "Require HSN/SAC code" is on) or
+	 * malformed (blocked unconditionally — a non-empty HSN must always be exactly 6 digits).
+	 * Only acts when 'wgt_hsn_code' was actually part of the submitted form (our own
+	 * product-manage forms), so REST/bulk/programmatic saves that don't touch this field
+	 * are left alone.
 	 */
-	public function enforce_hsn_mandatory( $data, $postarr ) {
+	public function enforce_hsn_rules( $data, $postarr ) {
 		if ( ! isset( $data['post_type'] ) || 'product' !== $data['post_type'] ) {
 			return $data;
 		}
@@ -222,16 +253,19 @@ class WGT_Product_Fields {
 			return $data;
 		}
 
+		$hsn      = $this->sanitize_hsn( $_POST['wgt_hsn_code'] );
 		$settings = WGT_Admin_Settings::get_settings();
-		if ( 'yes' !== $settings['hsn_mandatory'] ) {
-			return $data;
+
+		$reason = '';
+		if ( '' !== $hsn && ! self::is_valid_hsn( $hsn ) ) {
+			$reason = 'invalid';
+		} elseif ( '' === $hsn && 'yes' === $settings['hsn_mandatory'] ) {
+			$reason = 'missing';
 		}
 
-		if ( '' === $this->sanitize_hsn( $_POST['wgt_hsn_code'] ) ) {
+		if ( $reason && ! empty( $postarr['ID'] ) ) {
 			$data['post_status'] = 'pending';
-			if ( ! empty( $postarr['ID'] ) ) {
-				set_transient( 'wgt_hsn_blocked_' . $postarr['ID'], 1, MINUTE_IN_SECONDS );
-			}
+			set_transient( 'wgt_hsn_blocked_' . $postarr['ID'], $reason, MINUTE_IN_SECONDS );
 		}
 
 		return $data;
@@ -242,9 +276,10 @@ class WGT_Product_Fields {
 		// POST request that just saved the product, so the post ID comes from the submitted
 		// form field rather than the query string of the (not yet loaded) redirect target.
 		$post_id = isset( $_POST['post_ID'] ) ? absint( $_POST['post_ID'] ) : 0;
-		if ( $post_id && get_transient( 'wgt_hsn_blocked_' . $post_id ) ) {
+		$reason  = $post_id ? get_transient( 'wgt_hsn_blocked_' . $post_id ) : false;
+		if ( $reason ) {
 			delete_transient( 'wgt_hsn_blocked_' . $post_id );
-			$location = add_query_arg( 'wgt_hsn_error', '1', $location );
+			$location = add_query_arg( 'wgt_hsn_error', $reason, $location );
 		}
 		return $location;
 	}
@@ -253,9 +288,14 @@ class WGT_Product_Fields {
 		if ( empty( $_GET['wgt_hsn_error'] ) ) {
 			return;
 		}
+
+		$reason  = sanitize_key( wp_unslash( $_GET['wgt_hsn_error'] ) );
+		$message = 'invalid' === $reason
+			? __( 'This product was saved as Pending, not Published, because its HSN/SAC code must be exactly 6 digits.', 'wcfm-gst-tcs' )
+			: __( 'This product was saved as Pending, not Published, because an HSN/SAC code is required (Settings > GST & TCS).', 'wcfm-gst-tcs' );
 		?>
 		<div class="notice notice-error is-dismissible">
-			<p><?php esc_html_e( 'This product was saved as Pending, not Published, because an HSN/SAC code is required (Settings > GST & TCS).', 'wcfm-gst-tcs' ); ?></p>
+			<p><?php echo esc_html( $message ); ?></p>
 		</div>
 		<?php
 	}
