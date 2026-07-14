@@ -4,11 +4,16 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 /**
- * Automated monthly "sales & GST" email to vendors, for their own GST filing: a plain-text
- * summary (orders, net taxable value, CGST/SGST/IGST, TCS if enabled) plus a detailed
- * line-item invoice CSV attachment. Scheduled via WooCommerce's bundled Action Scheduler
- * using a real cron expression (day-of-month), which — unlike wp_schedule_event — supports
- * "run on day N of every month" natively instead of approximating it with a daily poll.
+ * Automated monthly email, run on the same schedule for three audiences:
+ *  - Vendors: sales & GST summary (orders, net taxable value, CGST/SGST/IGST, TCS if enabled)
+ *    plus a detailed line-item invoice CSV, for their own GST filing.
+ *  - Delivery persons and affiliates (only if the corresponding WCFM add-on is active):
+ *    a commission/earnings summary plus an order-level CSV, for their own tax records. These
+ *    two groups don't sell anything themselves, so this is deliberately NOT a GST report —
+ *    this plugin does not calculate or deduct GST on commission income.
+ * Scheduled via WooCommerce's bundled Action Scheduler using a real cron expression
+ * (day-of-month), which — unlike wp_schedule_event — supports "run on day N of every month"
+ * natively instead of approximating it with a daily poll.
  */
 class WGT_Monthly_Email {
 
@@ -37,7 +42,9 @@ class WGT_Monthly_Email {
 		}
 
 		$settings = WGT_Admin_Settings::get_settings();
-		$enabled  = 'yes' === $settings['monthly_email_enabled'];
+		$enabled  = 'yes' === $settings['monthly_email_enabled']
+			|| ( 'yes' === $settings['monthly_email_delivery_enabled'] && class_exists( 'WGT_Partner_Reports' ) && WGT_Partner_Reports::is_active( WGT_Partner_Reports::TYPE_DELIVERY ) )
+			|| ( 'yes' === $settings['monthly_email_affiliate_enabled'] && class_exists( 'WGT_Partner_Reports' ) && WGT_Partner_Reports::is_active( WGT_Partner_Reports::TYPE_AFFILIATE ) );
 		$day      = max( 1, min( 28, (int) $settings['monthly_email_day'] ) );
 
 		$already_scheduled = as_has_scheduled_action( self::CRON_HOOK, array(), self::AS_GROUP );
@@ -64,6 +71,7 @@ class WGT_Monthly_Email {
 	public function run() {
 		list( $date_from, $date_to ) = $this->previous_month_range();
 		$this->send_for_period( $date_from, $date_to );
+		$this->send_partner_emails_for_period( $date_from, $date_to );
 	}
 
 	public function handle_run_now() {
@@ -73,11 +81,152 @@ class WGT_Monthly_Email {
 		}
 
 		list( $date_from, $date_to ) = $this->previous_month_range();
-		$sent = $this->send_for_period( $date_from, $date_to );
+		$sent  = $this->send_for_period( $date_from, $date_to );
+		$sent += $this->send_partner_emails_for_period( $date_from, $date_to );
 
 		$redirect = wp_get_referer() ? wp_get_referer() : admin_url( 'admin.php?page=wgt-settings' );
 		wp_safe_redirect( add_query_arg( 'wgt_monthly_sent', $sent, $redirect ) );
 		exit;
+	}
+
+	/**
+	 * Delivery persons and affiliates aren't sellers, so this is deliberately a
+	 * commission/earnings summary, not a GST report — no-ops per group unless its
+	 * WCFM add-on is active and its toggle is enabled.
+	 */
+	private function send_partner_emails_for_period( $date_from, $date_to ) {
+		if ( ! class_exists( 'WGT_Partner_Reports' ) ) {
+			return 0;
+		}
+
+		$settings  = WGT_Admin_Settings::get_settings();
+		$sent      = 0;
+
+		if ( 'yes' === $settings['monthly_email_delivery_enabled'] && WGT_Partner_Reports::is_active( WGT_Partner_Reports::TYPE_DELIVERY ) ) {
+			$sent += $this->send_partner_type_for_period( WGT_Partner_Reports::TYPE_DELIVERY, $date_from, $date_to );
+		}
+		if ( 'yes' === $settings['monthly_email_affiliate_enabled'] && WGT_Partner_Reports::is_active( WGT_Partner_Reports::TYPE_AFFILIATE ) ) {
+			$sent += $this->send_partner_type_for_period( WGT_Partner_Reports::TYPE_AFFILIATE, $date_from, $date_to );
+		}
+
+		return $sent;
+	}
+
+	private function send_partner_type_for_period( $type, $date_from, $date_to ) {
+		$settings  = WGT_Admin_Settings::get_settings();
+		$skip_zero = 'yes' === $settings['monthly_email_skip_zero'];
+
+		$people = WGT_Partner_Reports::get_people( $type );
+		if ( empty( $people ) ) {
+			return 0;
+		}
+
+		$summary_by_person = WGT_Partner_Reports::gather_summary( $type, $date_from, $date_to );
+		$sent_count        = 0;
+
+		foreach ( $people as $person ) {
+			$person_id = (int) $person->ID;
+			$summary   = isset( $summary_by_person[ $person_id ] ) ? $summary_by_person[ $person_id ] : null;
+
+			if ( ! $summary && $skip_zero ) {
+				continue;
+			}
+			if ( ! $summary ) {
+				$summary = array( 'order_count' => 0, 'commission' => 0.0 );
+			}
+
+			if ( ! is_email( $person->user_email ) ) {
+				continue;
+			}
+
+			$attachment_path = '';
+			if ( $summary['order_count'] > 0 ) {
+				$rows             = WGT_Partner_Reports::gather_rows( $type, $date_from, $date_to, $person_id );
+				$attachment_path  = $this->write_partner_csv_attachment( $type, $person_id, $date_from, $rows );
+			}
+
+			$this->send_partner_email( $type, $person, $date_from, $date_to, $summary, $attachment_path );
+			++$sent_count;
+
+			if ( $attachment_path ) {
+				wp_delete_file( $attachment_path );
+			}
+		}
+
+		return $sent_count;
+	}
+
+	private function write_partner_csv_attachment( $type, $person_id, $date_from, $rows ) {
+		$upload = wp_upload_dir();
+		if ( ! empty( $upload['error'] ) ) {
+			return '';
+		}
+
+		$dir = trailingslashit( $upload['basedir'] ) . 'wgt-exports';
+		if ( ! file_exists( $dir ) ) {
+			wp_mkdir_p( $dir );
+		}
+
+		$path = trailingslashit( $dir ) . 'monthly-' . $type . '-' . $person_id . '-' . $date_from . '-' . wp_generate_password( 8, false ) . '.csv';
+		$fh   = fopen( $path, 'w' ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fopen
+		if ( ! $fh ) {
+			return '';
+		}
+
+		fwrite( $fh, "\xEF\xBB\xBF" ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fwrite
+		fputcsv( $fh, array( 'Order ID', 'Vendor', 'Order Date', 'Order Item Value', 'Commission Amount', 'Commission Status' ) );
+		foreach ( $rows as $row ) {
+			fputcsv(
+				$fh,
+				array(
+					$row->order_id,
+					WGT_Admin_Reports::vendor_label( (int) $row->vendor_id ),
+					gmdate( 'Y-m-d', strtotime( $row->created ) ),
+					number_format( (float) $row->item_total, 2, '.', '' ),
+					number_format( (float) $row->commission_amount, 2, '.', '' ),
+					$row->commission_status,
+				)
+			);
+		}
+		fclose( $fh ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fclose
+
+		return $path;
+	}
+
+	private function send_partner_email( $type, $person, $date_from, $date_to, $summary, $attachment_path ) {
+		$period_label = date_i18n( 'F Y', strtotime( $date_from ) );
+		$site_name    = wp_specialchars_decode( get_bloginfo( 'name' ), ENT_QUOTES );
+		$type_label   = WGT_Partner_Reports::type_label( $type );
+
+		$subject = sprintf(
+			/* translators: 1: month/year, 2: site name */
+			__( 'Your %1$s earnings summary — %2$s', 'wcfm-gst-tcs' ),
+			$period_label,
+			$site_name
+		);
+
+		$body  = sprintf( __( 'Hi %s,', 'wcfm-gst-tcs' ), $person->display_name ) . "\n\n";
+		$body .= sprintf(
+			/* translators: 1: "delivery person" or "affiliate", 2: month/year */
+			__( 'Here is your %1$s commission/earnings summary for %2$s, for your own records.', 'wcfm-gst-tcs' ),
+			strtolower( $type_label ),
+			$period_label
+		) . "\n\n";
+		$body .= __( 'Orders:', 'wcfm-gst-tcs' ) . ' ' . $summary['order_count'] . "\n";
+		$body .= __( 'Commission Earned:', 'wcfm-gst-tcs' ) . ' ' . $this->plain_price( $summary['commission'] ) . "\n\n";
+		$body .= __( 'Note: this is an earnings summary, not a GST calculation — this figure is not adjusted for GST, and no GST has been deducted from it by the marketplace.', 'wcfm-gst-tcs' ) . "\n\n";
+
+		if ( $attachment_path ) {
+			$body .= __( 'An order-level CSV is attached with the order, vendor, order date, order value, commission amount and status for each order in this period.', 'wcfm-gst-tcs' ) . "\n\n";
+		} else {
+			$body .= __( 'No commission activity was recorded for you in this period.', 'wcfm-gst-tcs' ) . "\n\n";
+		}
+
+		$body .= sprintf( __( 'This is an automated message from %s.', 'wcfm-gst-tcs' ), $site_name ) . "\n";
+
+		$attachments = $attachment_path ? array( $attachment_path ) : array();
+
+		wp_mail( $person->user_email, $subject, $body, array(), $attachments );
 	}
 
 	public function maybe_show_sent_notice() {
@@ -91,8 +240,8 @@ class WGT_Monthly_Email {
 				<?php
 				echo esc_html(
 					sprintf(
-						/* translators: %d: number of vendor emails sent */
-						_n( 'Monthly GST email sent to %d vendor.', 'Monthly GST email sent to %d vendors.', $count, 'wcfm-gst-tcs' ),
+						/* translators: %d: number of monthly report emails sent (vendors, delivery persons, affiliates combined) */
+						_n( 'Monthly report email sent to %d recipient.', 'Monthly report emails sent to %d recipients.', $count, 'wcfm-gst-tcs' ),
 						$count
 					)
 				);

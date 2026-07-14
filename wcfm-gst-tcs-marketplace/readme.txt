@@ -6,7 +6,7 @@ Tested up to: 6.7
 Requires PHP: 7.4
 WC requires at least: 6.0
 WC tested up to: 9.5
-Stable tag: 1.6.0
+Stable tag: 1.7.0
 License: GPLv2 or later
 
 Adds India GST (CGST/SGST/IGST) tax calculation and GST-TCS (Section 52, CGST Act) compliance
@@ -97,12 +97,25 @@ to a WCFM Marketplace multivendor store.
   via WCFM's own extension points (wcfm_menus, wcfm_query_vars, wcfm_load_views), with an
   automatic one-time permalink flush so it works immediately even on a site upgrading the
   plugin in place.
+* Optional commission reporting for the WCFM Delivery and WCFM Affiliate add-ons (only
+  activates if the corresponding add-on is installed): admin report pages ("Delivery
+  Commissions" / "Affiliate Commissions") with date-range filtering, a "Previous Month" quick
+  filter and CSV export, plus an opt-in monthly email to each delivery person/affiliate with
+  their commission earned and order count for the previous month and an order-level CSV
+  attached. This is deliberately an earnings summary, not a GST report — delivery persons and
+  affiliates earn a service commission rather than selling anything themselves, so none of
+  this plugin's GST/TCS-on-product-sales calculation applies to them; see Notes below.
 
 == Notes ==
 
 * This plugin computes and reports GST-TCS under GST law (Section 52, CGST Act, no minimum
   threshold). It does not implement Income Tax Act Section 52 TCS (0.1%/1% above the ₹5 lakh
   annual threshold) — that is a separate compliance requirement and out of scope here.
+* The delivery person / affiliate commission reports and emails are an earnings summary only.
+  This plugin does not calculate, collect, or deduct any GST on delivery or affiliate
+  commission — if a delivery person or affiliate is themselves GST-registered, invoicing the
+  marketplace for their commission (including any reverse-charge treatment) is between them
+  and the marketplace operator, and is outside this plugin's scope.
 * GSTIN validation checks structure and the real mod-36 check digit, which catches typos and
   fabricated numbers, but does not verify against the GSTN portal that the GSTIN is actually
   registered/active — see the `wgt_gstin_is_registered` filter if you need that.
@@ -120,6 +133,18 @@ to a WCFM Marketplace multivendor store.
   include PHPUnit.
 
 == Changelog ==
+
+= 1.7.0 =
+* Added optional commission reporting for the WCFM Delivery (wc-frontend-manager-delivery) and
+  WCFM Affiliate (wc-frontend-manager-affiliate) add-ons, auto-detected and only activating
+  when the corresponding add-on is installed: new admin pages "Delivery Commissions" and
+  "Affiliate Commissions" (date-range filter, Previous Month quick filter, CSV export), and
+  an opt-in extension of the monthly automated email so delivery persons and affiliates also
+  receive their previous month's commission earned, order count, and an order-level CSV, for
+  their own tax records. Two new settings toggles (off by default) under Settings > GST & TCS
+  control this, only shown when the respective add-on is active. This is deliberately an
+  earnings summary rather than a GST report — the plugin doesn't calculate GST on commission
+  income for either role.
 
 = 1.6.0 =
 * Added a one-click "Previous Month" quick filter to every report page (admin GST report,

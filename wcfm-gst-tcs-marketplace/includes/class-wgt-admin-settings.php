@@ -48,6 +48,8 @@ class WGT_Admin_Settings {
 			'monthly_email_enabled'   => 'no',
 			'monthly_email_day'       => 3,
 			'monthly_email_skip_zero' => 'yes',
+			'monthly_email_delivery_enabled'  => 'no',
+			'monthly_email_affiliate_enabled' => 'no',
 		);
 		return wp_parse_args( get_option( 'wgt_settings', array() ), $defaults );
 	}
@@ -84,6 +86,8 @@ class WGT_Admin_Settings {
 			'monthly_email_enabled'   => isset( $_POST['monthly_email_enabled'] ) ? 'yes' : 'no',
 			'monthly_email_day'       => isset( $_POST['monthly_email_day'] ) ? max( 1, min( 28, absint( $_POST['monthly_email_day'] ) ) ) : 3,
 			'monthly_email_skip_zero' => isset( $_POST['monthly_email_skip_zero'] ) ? 'yes' : 'no',
+			'monthly_email_delivery_enabled'  => isset( $_POST['monthly_email_delivery_enabled'] ) ? 'yes' : 'no',
+			'monthly_email_affiliate_enabled' => isset( $_POST['monthly_email_affiliate_enabled'] ) ? 'yes' : 'no',
 		);
 
 		if ( $gstin ) {
@@ -199,8 +203,26 @@ class WGT_Admin_Settings {
 					</tr>
 					<tr>
 						<th scope="row"><?php esc_html_e( 'Skip vendors with no sales', 'wcfm-gst-tcs' ); ?></th>
-						<td><label><input type="checkbox" name="monthly_email_skip_zero" value="1" <?php checked( $settings['monthly_email_skip_zero'], 'yes' ); ?> /> <?php esc_html_e( 'Don\'t email a vendor who had no orders in the period', 'wcfm-gst-tcs' ); ?></label></td>
+						<td><label><input type="checkbox" name="monthly_email_skip_zero" value="1" <?php checked( $settings['monthly_email_skip_zero'], 'yes' ); ?> /> <?php esc_html_e( 'Don\'t email a vendor who had no orders in the period (also applies to delivery persons/affiliates with no commission below)', 'wcfm-gst-tcs' ); ?></label></td>
 					</tr>
+					<?php if ( class_exists( 'WGT_Partner_Reports' ) && WGT_Partner_Reports::is_active( WGT_Partner_Reports::TYPE_DELIVERY ) ) : ?>
+					<tr>
+						<th scope="row"><?php esc_html_e( 'Monthly delivery person email', 'wcfm-gst-tcs' ); ?></th>
+						<td>
+							<label><input type="checkbox" name="monthly_email_delivery_enabled" value="1" <?php checked( $settings['monthly_email_delivery_enabled'], 'yes' ); ?> /> <?php esc_html_e( 'Also email each delivery person a commission/earnings summary for the previous month, with an order-level CSV attached, for their own tax records', 'wcfm-gst-tcs' ); ?></label>
+							<p class="description"><?php esc_html_e( 'This is an earnings summary, not a GST calculation — this plugin does not compute or deduct GST on delivery commission.', 'wcfm-gst-tcs' ); ?></p>
+						</td>
+					</tr>
+					<?php endif; ?>
+					<?php if ( class_exists( 'WGT_Partner_Reports' ) && WGT_Partner_Reports::is_active( WGT_Partner_Reports::TYPE_AFFILIATE ) ) : ?>
+					<tr>
+						<th scope="row"><?php esc_html_e( 'Monthly affiliate email', 'wcfm-gst-tcs' ); ?></th>
+						<td>
+							<label><input type="checkbox" name="monthly_email_affiliate_enabled" value="1" <?php checked( $settings['monthly_email_affiliate_enabled'], 'yes' ); ?> /> <?php esc_html_e( 'Also email each affiliate a commission/earnings summary for the previous month, with an order-level CSV attached, for their own tax records', 'wcfm-gst-tcs' ); ?></label>
+							<p class="description"><?php esc_html_e( 'This is an earnings summary, not a GST calculation — this plugin does not compute or deduct GST on affiliate commission.', 'wcfm-gst-tcs' ); ?></p>
+						</td>
+					</tr>
+					<?php endif; ?>
 				</table>
 				<?php submit_button( __( 'Save Settings', 'wcfm-gst-tcs' ) ); ?>
 			</form>
@@ -215,12 +237,12 @@ class WGT_Admin_Settings {
 			return;
 		}
 		?>
-		<h2><?php esc_html_e( 'Monthly Vendor Email', 'wcfm-gst-tcs' ); ?></h2>
+		<h2><?php esc_html_e( 'Monthly Report Email', 'wcfm-gst-tcs' ); ?></h2>
 		<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
 			<input type="hidden" name="action" value="wgt_run_monthly_email_now" />
 			<?php wp_nonce_field( 'wgt_run_monthly_email_now' ); ?>
 			<?php submit_button( __( 'Send Now (Previous Month)', 'wcfm-gst-tcs' ), 'secondary', '', false ); ?>
-			<p class="description"><?php esc_html_e( 'Sends the previous month\'s report immediately, to every qualifying vendor, regardless of the scheduled day above. Useful to test or to catch up a missed run.', 'wcfm-gst-tcs' ); ?></p>
+			<p class="description"><?php esc_html_e( 'Sends the previous month\'s report immediately to every qualifying vendor, and — if enabled above — every qualifying delivery person and affiliate, regardless of the scheduled day above. Useful to test or to catch up a missed run.', 'wcfm-gst-tcs' ); ?></p>
 		</form>
 		<?php
 	}
