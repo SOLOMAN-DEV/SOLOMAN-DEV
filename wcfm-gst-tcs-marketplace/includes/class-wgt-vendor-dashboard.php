@@ -41,6 +41,7 @@ class WGT_Vendor_Dashboard {
 
 		add_action( 'admin_post_wgt_export_vendor_tcs', array( $this, 'export_own_tcs_csv' ) );
 		add_action( 'admin_post_wgt_export_vendor_invoices', array( $this, 'export_own_invoices_csv' ) );
+		add_action( 'admin_post_wgt_export_vendor_hsn_rate', array( $this, 'export_own_hsn_rate_csv' ) );
 
 		// WCFM vendor dashboard tab (best-effort: only takes effect on sites that have
 		// WCFM Marketplace active and firing these hooks; harmless no-op otherwise).
@@ -320,6 +321,29 @@ class WGT_Vendor_Dashboard {
 				<button type="submit" class="button"><?php esc_html_e( 'B2C Only (CSV)', 'wcfm-gst-tcs' ); ?></button>
 			</form>
 			<p class="description"><?php esc_html_e( 'The detailed report lists every order line item with full order details — customer, addresses, payment method, product, quantity, pricing, HSN/SAC code, taxable value, CGST/SGST/IGST and buyer details for business purchases — for your own bookkeeping, your accountant, or filing GSTR-1 (B2B and B2C are reported separately).', 'wcfm-gst-tcs' ); ?></p>
+
+			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="display:inline-block;margin-right:10px;">
+				<input type="hidden" name="action" value="wgt_export_vendor_hsn_rate" />
+				<input type="hidden" name="kind" value="hsn" />
+				<input type="hidden" name="date_from" value="<?php echo esc_attr( $date_from ); ?>" />
+				<input type="hidden" name="date_to" value="<?php echo esc_attr( $date_to ); ?>" />
+				<?php wp_nonce_field( 'wgt_export_vendor_hsn_rate' ); ?>
+				<button type="submit" class="button"><?php esc_html_e( 'HSN Summary — GSTR-1 Table 12 (CSV)', 'wcfm-gst-tcs' ); ?></button>
+			</form>
+			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="display:inline-block;">
+				<input type="hidden" name="action" value="wgt_export_vendor_hsn_rate" />
+				<input type="hidden" name="kind" value="rate" />
+				<input type="hidden" name="date_from" value="<?php echo esc_attr( $date_from ); ?>" />
+				<input type="hidden" name="date_to" value="<?php echo esc_attr( $date_to ); ?>" />
+				<?php wp_nonce_field( 'wgt_export_vendor_hsn_rate' ); ?>
+				<button type="submit" class="button"><?php esc_html_e( 'Rate Summary — GSTR-3B Table 3.1 (CSV)', 'wcfm-gst-tcs' ); ?></button>
+			</form>
+			<p class="description"><?php esc_html_e( 'HSN-wise and rate-wise summaries of your sales, for the HSN summary and outward-supply tables in your own filing. UQC (unit) is always shown as NOS (Numbers), since WooCommerce doesn\'t track a unit of measure — check this if you sell by weight, length, or volume.', 'wcfm-gst-tcs' ); ?></p>
+
+			<?php if ( class_exists( 'WGT_Bulk_Tax' ) ) : ?>
+				<h3><?php esc_html_e( 'Bulk Update Your Products\' HSN/GST', 'wcfm-gst-tcs' ); ?></h3>
+				<?php WGT_Bulk_Tax::instance()->render_section( 'vendor' ); ?>
+			<?php endif; ?>
 		</div>
 		<?php
 		return ob_get_clean();
@@ -417,6 +441,37 @@ class WGT_Vendor_Dashboard {
 			'my-invoice-report-' . ( $type ? strtolower( $type ) . '-' : '' ) . $date_from . '-to-' . $date_to,
 			WGT_Admin_Reports::gstr1_headers(),
 			$rows
+		);
+	}
+
+	/**
+	 * HSN-wise (GSTR-1 Table 12) or rate-wise (GSTR-3B Table 3.1) summary of the vendor's own
+	 * sales, same underlying figures as the admin HSN & Rate Summary page, filtered to this
+	 * vendor only.
+	 */
+	public function export_own_hsn_rate_csv() {
+		check_admin_referer( 'wgt_export_vendor_hsn_rate' );
+
+		$vendor_id = get_current_user_id();
+		if ( ! $vendor_id || ! $this->can_view_own_reports() ) {
+			wp_die( esc_html__( 'You do not have permission to do this.', 'wcfm-gst-tcs' ) );
+		}
+
+		list( $date_from, $date_to ) = $this->get_export_date_range();
+		$kind = isset( $_POST['kind'] ) ? sanitize_key( $_POST['kind'] ) : 'hsn';
+
+		if ( 'rate' === $kind ) {
+			WGT_CSV_Export::stream(
+				'my-rate-summary-' . $date_from . '-to-' . $date_to,
+				WGT_Admin_Reports::rate_summary_headers(),
+				WGT_Admin_Reports::rate_summary_rows( $date_from, $date_to, $vendor_id )
+			);
+		}
+
+		WGT_CSV_Export::stream(
+			'my-hsn-summary-' . $date_from . '-to-' . $date_to,
+			WGT_Admin_Reports::hsn_summary_headers(),
+			WGT_Admin_Reports::hsn_summary_rows( $date_from, $date_to, $vendor_id )
 		);
 	}
 }

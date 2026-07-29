@@ -19,12 +19,14 @@ class WGT_Admin_Reports {
 		add_action( 'admin_post_wgt_export_gst_report', array( $this, 'export_gst_report' ) );
 		add_action( 'admin_post_wgt_export_tcs_report', array( $this, 'export_tcs_report' ) );
 		add_action( 'admin_post_wgt_export_gstr1', array( $this, 'export_gstr1_report' ) );
+		add_action( 'admin_post_wgt_export_hsn_rate_report', array( $this, 'export_hsn_rate_report' ) );
 	}
 
 	public function add_menu() {
 		add_submenu_page( 'wgt-settings', __( 'GST Report', 'wcfm-gst-tcs' ), __( 'GST Report', 'wcfm-gst-tcs' ), 'manage_woocommerce', 'wgt-gst-report', array( $this, 'render_gst_report' ) );
 		add_submenu_page( 'wgt-settings', __( 'TCS Report (GSTR-8)', 'wcfm-gst-tcs' ), __( 'TCS Report (GSTR-8)', 'wcfm-gst-tcs' ), 'manage_woocommerce', 'wgt-tcs-report', array( $this, 'render_tcs_report' ) );
 		add_submenu_page( 'wgt-settings', __( 'GSTR-1 Export', 'wcfm-gst-tcs' ), __( 'GSTR-1 Export', 'wcfm-gst-tcs' ), 'manage_woocommerce', 'wgt-gstr1-report', array( $this, 'render_gstr1_report' ) );
+		add_submenu_page( 'wgt-settings', __( 'HSN & Rate Summary', 'wcfm-gst-tcs' ), __( 'HSN & Rate Summary', 'wcfm-gst-tcs' ), 'manage_woocommerce', 'wgt-hsn-rate-report', array( $this, 'render_hsn_rate_report' ) );
 	}
 
 	/**
@@ -275,6 +277,96 @@ class WGT_Admin_Reports {
 			unset( $row );
 		}
 		unset( $types );
+
+		return $data;
+	}
+
+	/**
+	 * Per-vendor, per-HSN, per-rate totals — the shape of GSTR-1 Table 12 (HSN-wise summary
+	 * of outward supplies). Reads the HSN/rate stamped on each order line at checkout
+	 * (_wgt_hsn_code / _wgt_gst_rate), same as the rest of this plugin's reporting, so a
+	 * later HSN/rate change on the product itself never rewrites historical figures.
+	 *
+	 * @return array<int,array<string,array{hsn:string,rate:float,qty:int,net:float,cgst:float,sgst:float,igst:float}>>
+	 */
+	public static function gather_hsn_summary( $date_from, $date_to, $vendor_id = 0 ) {
+		$data = array();
+
+		foreach ( self::iterate_orders( $date_from, $date_to ) as $order ) {
+			foreach ( $order->get_items() as $item ) {
+				$v = $item->get_meta( '_wgt_vendor_id' );
+				if ( ! $v && function_exists( 'wcfm_get_vendor_id_by_post' ) ) {
+					$v = wcfm_get_vendor_id_by_post( $item->get_product_id() );
+				}
+				if ( ! $v ) {
+					continue;
+				}
+				$v = (int) $v;
+				if ( $vendor_id && $v !== $vendor_id ) {
+					continue;
+				}
+
+				$hsn  = $item->get_meta( '_wgt_hsn_code' );
+				$hsn  = $hsn ? $hsn : __( 'Unclassified', 'wcfm-gst-tcs' );
+				$rate = $item->get_meta( '_wgt_gst_rate' );
+				$rate = ( '' !== $rate && null !== $rate ) ? round( (float) $rate, 2 ) : 0.0;
+				$key  = $hsn . '|' . $rate;
+
+				if ( ! isset( $data[ $v ] ) ) {
+					$data[ $v ] = array();
+				}
+				if ( ! isset( $data[ $v ][ $key ] ) ) {
+					$data[ $v ][ $key ] = array(
+						'hsn'  => $hsn,
+						'rate' => $rate,
+						'qty'  => 0,
+						'net'  => 0.0,
+						'cgst' => 0.0,
+						'sgst' => 0.0,
+						'igst' => 0.0,
+					);
+				}
+
+				$data[ $v ][ $key ]['qty'] += $item->get_quantity();
+				$data[ $v ][ $key ]['net'] += (float) $item->get_total();
+
+				$split = self::item_gst_split( $item );
+				$data[ $v ][ $key ]['cgst'] += $split['cgst'];
+				$data[ $v ][ $key ]['sgst'] += $split['sgst'];
+				$data[ $v ][ $key ]['igst'] += $split['igst'];
+			}
+		}
+
+		return $data;
+	}
+
+	/**
+	 * Rolls gather_hsn_summary() up one level further, dropping HSN and keeping only rate —
+	 * the shape of GSTR-3B Table 3.1 (rate-wise summary of outward taxable supplies). Reuses
+	 * the HSN summary's per-item work instead of iterating every order a second time.
+	 *
+	 * @return array<int,array<string,array{rate:float,qty:int,net:float,cgst:float,sgst:float,igst:float}>>
+	 */
+	public static function gather_rate_summary( $date_from, $date_to, $vendor_id = 0 ) {
+		$hsn_data = self::gather_hsn_summary( $date_from, $date_to, $vendor_id );
+		$data     = array();
+
+		foreach ( $hsn_data as $v => $rows ) {
+			foreach ( $rows as $row ) {
+				$key = (string) $row['rate'];
+				if ( ! isset( $data[ $v ] ) ) {
+					$data[ $v ] = array();
+				}
+				if ( ! isset( $data[ $v ][ $key ] ) ) {
+					$data[ $v ][ $key ] = array( 'rate' => $row['rate'], 'qty' => 0, 'net' => 0.0, 'cgst' => 0.0, 'sgst' => 0.0, 'igst' => 0.0 );
+				}
+				$data[ $v ][ $key ]['qty']  += $row['qty'];
+				$data[ $v ][ $key ]['net']  += $row['net'];
+				$data[ $v ][ $key ]['cgst'] += $row['cgst'];
+				$data[ $v ][ $key ]['sgst'] += $row['sgst'];
+				$data[ $v ][ $key ]['igst'] += $row['igst'];
+			}
+		}
 
 		return $data;
 	}
@@ -877,6 +969,177 @@ class WGT_Admin_Reports {
 			'gstr1-export-' . ( $type ? strtolower( $type ) . '-' : '' ) . $date_from . '-to-' . $date_to,
 			self::gstr1_headers(),
 			$rows
+		);
+	}
+
+	public static function hsn_summary_headers() {
+		return array( 'Vendor', 'HSN/SAC', 'UQC (assumed)', 'Total Quantity', 'Taxable Value', 'GST Rate (%)', 'CGST', 'SGST', 'IGST', 'Total Tax' );
+	}
+
+	public static function rate_summary_headers() {
+		return array( 'Vendor', 'GST Rate (%)', 'Taxable Value', 'CGST', 'SGST', 'IGST', 'Total Tax' );
+	}
+
+	/**
+	 * @return array[] CSV rows matching hsn_summary_headers().
+	 */
+	public static function hsn_summary_rows( $date_from, $date_to, $vendor_id = 0 ) {
+		$rows = array();
+		foreach ( self::gather_hsn_summary( $date_from, $date_to, $vendor_id ) as $vid => $entries ) {
+			foreach ( $entries as $row ) {
+				$rows[] = array(
+					self::vendor_label( $vid ),
+					$row['hsn'],
+					'NOS',
+					$row['qty'],
+					number_format( $row['net'], 2, '.', '' ),
+					$row['rate'],
+					number_format( $row['cgst'], 2, '.', '' ),
+					number_format( $row['sgst'], 2, '.', '' ),
+					number_format( $row['igst'], 2, '.', '' ),
+					number_format( $row['cgst'] + $row['sgst'] + $row['igst'], 2, '.', '' ),
+				);
+			}
+		}
+		return $rows;
+	}
+
+	/**
+	 * @return array[] CSV rows matching rate_summary_headers().
+	 */
+	public static function rate_summary_rows( $date_from, $date_to, $vendor_id = 0 ) {
+		$rows = array();
+		foreach ( self::gather_rate_summary( $date_from, $date_to, $vendor_id ) as $vid => $entries ) {
+			foreach ( $entries as $row ) {
+				$rows[] = array(
+					self::vendor_label( $vid ),
+					$row['rate'],
+					number_format( $row['net'], 2, '.', '' ),
+					number_format( $row['cgst'], 2, '.', '' ),
+					number_format( $row['sgst'], 2, '.', '' ),
+					number_format( $row['igst'], 2, '.', '' ),
+					number_format( $row['cgst'] + $row['sgst'] + $row['igst'], 2, '.', '' ),
+				);
+			}
+		}
+		return $rows;
+	}
+
+	public function render_hsn_rate_report() {
+		if ( ! current_user_can( 'manage_woocommerce' ) ) {
+			return;
+		}
+
+		$filters = $this->get_filters();
+		?>
+		<div class="wrap wgt-admin-wrap">
+			<h1><?php esc_html_e( 'HSN & Rate Summary', 'wcfm-gst-tcs' ); ?></h1>
+			<p><?php esc_html_e( 'HSN-wise summary (GSTR-1 Table 12) and rate-wise summary (GSTR-3B Table 3.1) of outward supplies, per vendor — each vendor files these figures on their own GSTIN.', 'wcfm-gst-tcs' ); ?></p>
+			<p class="description"><?php esc_html_e( 'UQC (unit of measure) is not tracked by WooCommerce, so it\'s always shown as NOS (Numbers) here — double-check this against your actual filing if you sell by weight, length, or volume.', 'wcfm-gst-tcs' ); ?></p>
+
+			<form method="get" class="wgt-filter-form">
+				<input type="hidden" name="page" value="wgt-hsn-rate-report" />
+				<label><?php esc_html_e( 'From', 'wcfm-gst-tcs' ); ?> <input type="date" name="date_from" value="<?php echo esc_attr( $filters['date_from'] ); ?>" /></label>
+				<label><?php esc_html_e( 'To', 'wcfm-gst-tcs' ); ?> <input type="date" name="date_to" value="<?php echo esc_attr( $filters['date_to'] ); ?>" /></label>
+				<label><?php esc_html_e( 'Vendor ID', 'wcfm-gst-tcs' ); ?> <input type="number" name="vendor_id" value="<?php echo esc_attr( $filters['vendor_id'] ?: '' ); ?>" placeholder="<?php esc_attr_e( 'All', 'wcfm-gst-tcs' ); ?>" /></label>
+				<?php submit_button( __( 'Filter', 'wcfm-gst-tcs' ), 'secondary', '', false ); ?>
+				<?php echo $this->previous_month_link( 'wgt-hsn-rate-report', $filters['vendor_id'] ); // phpcs:ignore WordPress.Security.EscapeOutput ?>
+			</form>
+
+			<h2><?php esc_html_e( 'HSN-wise Summary (GSTR-1 Table 12)', 'wcfm-gst-tcs' ); ?></h2>
+			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="margin:10px 0;">
+				<input type="hidden" name="action" value="wgt_export_hsn_rate_report" />
+				<input type="hidden" name="kind" value="hsn" />
+				<?php wp_nonce_field( 'wgt_export_hsn_rate_report' ); ?>
+				<input type="hidden" name="date_from" value="<?php echo esc_attr( $filters['date_from'] ); ?>" />
+				<input type="hidden" name="date_to" value="<?php echo esc_attr( $filters['date_to'] ); ?>" />
+				<input type="hidden" name="vendor_id" value="<?php echo esc_attr( $filters['vendor_id'] ); ?>" />
+				<?php submit_button( __( 'Export HSN Summary (CSV)', 'wcfm-gst-tcs' ), 'primary', '', false ); ?>
+			</form>
+			<table class="widefat striped">
+				<thead>
+					<tr>
+						<?php foreach ( self::hsn_summary_headers() as $header ) : ?>
+							<th><?php echo esc_html( $header ); ?></th>
+						<?php endforeach; ?>
+					</tr>
+				</thead>
+				<tbody>
+					<?php $hsn_rows = self::hsn_summary_rows( $filters['date_from'], $filters['date_to'], $filters['vendor_id'] ); ?>
+					<?php if ( empty( $hsn_rows ) ) : ?>
+						<tr><td colspan="<?php echo count( self::hsn_summary_headers() ); ?>"><?php esc_html_e( 'No sales in this period.', 'wcfm-gst-tcs' ); ?></td></tr>
+					<?php else : ?>
+						<?php foreach ( $hsn_rows as $row ) : ?>
+							<tr>
+								<?php foreach ( $row as $cell ) : ?>
+									<td><?php echo esc_html( $cell ); ?></td>
+								<?php endforeach; ?>
+							</tr>
+						<?php endforeach; ?>
+					<?php endif; ?>
+				</tbody>
+			</table>
+
+			<h2><?php esc_html_e( 'Rate-wise Summary (GSTR-3B Table 3.1)', 'wcfm-gst-tcs' ); ?></h2>
+			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="margin:10px 0;">
+				<input type="hidden" name="action" value="wgt_export_hsn_rate_report" />
+				<input type="hidden" name="kind" value="rate" />
+				<?php wp_nonce_field( 'wgt_export_hsn_rate_report' ); ?>
+				<input type="hidden" name="date_from" value="<?php echo esc_attr( $filters['date_from'] ); ?>" />
+				<input type="hidden" name="date_to" value="<?php echo esc_attr( $filters['date_to'] ); ?>" />
+				<input type="hidden" name="vendor_id" value="<?php echo esc_attr( $filters['vendor_id'] ); ?>" />
+				<?php submit_button( __( 'Export Rate Summary (CSV)', 'wcfm-gst-tcs' ), 'primary', '', false ); ?>
+			</form>
+			<table class="widefat striped">
+				<thead>
+					<tr>
+						<?php foreach ( self::rate_summary_headers() as $header ) : ?>
+							<th><?php echo esc_html( $header ); ?></th>
+						<?php endforeach; ?>
+					</tr>
+				</thead>
+				<tbody>
+					<?php $rate_rows = self::rate_summary_rows( $filters['date_from'], $filters['date_to'], $filters['vendor_id'] ); ?>
+					<?php if ( empty( $rate_rows ) ) : ?>
+						<tr><td colspan="<?php echo count( self::rate_summary_headers() ); ?>"><?php esc_html_e( 'No sales in this period.', 'wcfm-gst-tcs' ); ?></td></tr>
+					<?php else : ?>
+						<?php foreach ( $rate_rows as $row ) : ?>
+							<tr>
+								<?php foreach ( $row as $cell ) : ?>
+									<td><?php echo esc_html( $cell ); ?></td>
+								<?php endforeach; ?>
+							</tr>
+						<?php endforeach; ?>
+					<?php endif; ?>
+				</tbody>
+			</table>
+		</div>
+		<?php
+	}
+
+	public function export_hsn_rate_report() {
+		check_admin_referer( 'wgt_export_hsn_rate_report' );
+		if ( ! current_user_can( 'manage_woocommerce' ) ) {
+			wp_die( esc_html__( 'You do not have permission to do this.', 'wcfm-gst-tcs' ) );
+		}
+
+		$date_from = isset( $_POST['date_from'] ) ? sanitize_text_field( wp_unslash( $_POST['date_from'] ) ) : gmdate( 'Y-m-01' );
+		$date_to   = isset( $_POST['date_to'] ) ? sanitize_text_field( wp_unslash( $_POST['date_to'] ) ) : gmdate( 'Y-m-d' );
+		$vendor_id = isset( $_POST['vendor_id'] ) ? absint( $_POST['vendor_id'] ) : 0;
+		$kind      = isset( $_POST['kind'] ) ? sanitize_key( $_POST['kind'] ) : 'hsn';
+
+		if ( 'rate' === $kind ) {
+			WGT_CSV_Export::stream(
+				'gst-rate-summary-' . $date_from . '-to-' . $date_to,
+				self::rate_summary_headers(),
+				self::rate_summary_rows( $date_from, $date_to, $vendor_id )
+			);
+		}
+
+		WGT_CSV_Export::stream(
+			'gst-hsn-summary-' . $date_from . '-to-' . $date_to,
+			self::hsn_summary_headers(),
+			self::hsn_summary_rows( $date_from, $date_to, $vendor_id )
 		);
 	}
 }

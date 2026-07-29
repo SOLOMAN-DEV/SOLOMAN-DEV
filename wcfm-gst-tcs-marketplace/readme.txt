@@ -6,7 +6,7 @@ Tested up to: 6.7
 Requires PHP: 7.4
 WC requires at least: 6.0
 WC tested up to: 9.5
-Stable tag: 1.7.0
+Stable tag: 1.8.0
 License: GPLv2 or later
 
 Adds India GST (CGST/SGST/IGST) tax calculation and GST-TCS (Section 52, CGST Act) compliance
@@ -21,7 +21,17 @@ to a WCFM Marketplace multivendor store.
 == What it does ==
 
 * Per-product HSN/SAC code and GST rate, editable from the WCFM vendor product manager
-  and from the wp-admin product edit screen (Tax tab).
+  and from the wp-admin product edit screen (Tax tab). The GST rate is a dropdown of the
+  standard Indian GST slabs (0%, 0.25%, 3%, 5%, 12%, 18%, 28%) — the same "pick a tax code,
+  don't type a number" pattern Amazon/Flipkart use for seller listings — with a live preview
+  showing the CGST+SGST split for same-state buyers and the IGST rate for other states, and an
+  inline "tax info complete/incomplete" status right on the product form so a vendor sees and
+  fixes a problem before publishing rather than after.
+* Bulk HSN/GST update via CSV (Settings > GST & TCS > Bulk HSN/GST Update for admins, and on
+  each vendor's own GST & TCS tab): export current listing tax data, edit it in a spreadsheet,
+  and re-upload to update many products in one pass — mirroring the bulk tax-code sheets
+  Amazon/Flipkart sellers use instead of editing listings one at a time. Vendor uploads are
+  always restricted to their own products, verified per row, never trusted from the file.
 * Vendor GSTIN, PAN, legal name and state, captured from WCFM's vendor Settings > General
   tab (with a wp-admin user-profile fallback), with GSTIN format validation and automatic
   state detection from the GSTIN.
@@ -43,6 +53,11 @@ to a WCFM Marketplace multivendor store.
   into separate CSV downloads, matching how GSTR-1 itself must be filed; the TCS report shows
   the same B2B/B2C breakdown for the operator's own reconciliation (GSTR-8 filing itself is
   per-vendor only and doesn't require the split).
+* An "HSN & Rate Summary" report (admin, and on each vendor's own GST & TCS tab): an HSN-wise
+  summary of outward supplies matching GSTR-1 Table 12 (HSN, quantity, taxable value, tax
+  split), and a rate-wise summary matching GSTR-3B Table 3.1, both per vendor with CSV export.
+  UQC (unit of measure) isn't tracked by WooCommerce, so it's always shown as NOS (Numbers) —
+  flagged in the report for vendors who sell by weight, length, or volume to double-check.
 * A vendor-facing "GST & TCS" tab under My Account, date-range filterable, with two CSV
   downloads: a summary report (orders, net taxable value, GST collected, TCS deducted) and a
   detailed sales report (every order line, with full order details — customer name/email/
@@ -133,6 +148,22 @@ to a WCFM Marketplace multivendor store.
   include PHPUnit.
 
 == Changelog ==
+
+= 1.8.0 =
+* Product listing polish, informed by how Amazon/Flipkart guide sellers through GST setup:
+  a live tax-split preview under the GST rate dropdown (CGST+SGST for same-state buyers, IGST
+  for other states), and an inline "tax info complete/incomplete" status on the product form
+  itself so a vendor catches a missing/invalid HSN before attempting to publish.
+* Bulk HSN/GST update via CSV — export current listing tax data, edit offline, re-upload to
+  update many products at once — for admins (any vendor) and for each vendor (their own
+  products only, ownership verified per row on import). New Settings > GST & TCS > Bulk
+  HSN/GST Update admin page; a matching section on the vendor GST & TCS tab.
+* New "HSN & Rate Summary" report (admin + vendor-facing): HSN-wise summary of outward
+  supplies (GSTR-1 Table 12 shape) and a rate-wise summary (GSTR-3B Table 3.1 shape), both
+  per vendor with CSV export and the existing Previous Month quick filter.
+* Refactored HSN/GST-rate save logic in WGT_Product_Fields into reusable static methods so
+  the new bulk-import tool updates products through the exact same validation as the regular
+  product forms, instead of duplicating it.
 
 = 1.7.0 =
 * Added optional commission reporting for the WCFM Delivery (wc-frontend-manager-delivery) and

@@ -92,14 +92,33 @@ class WGT_Product_Fields {
 		return '' !== $settings['default_gst_rate'] ? (float) $settings['default_gst_rate'] : 0.0;
 	}
 
-	private function sanitize_hsn( $value ) {
-		return preg_replace( '/[^0-9]/', '', sanitize_text_field( wp_unslash( $value ) ) );
+	private static function sanitize_hsn( $value ) {
+		return preg_replace( '/[^0-9]/', '', sanitize_text_field( wp_unslash( (string) $value ) ) );
 	}
 
-	private function sanitize_rate( $value ) {
-		$rate = wc_format_decimal( sanitize_text_field( wp_unslash( $value ) ) );
+	private static function sanitize_rate( $value ) {
+		$rate = wc_format_decimal( sanitize_text_field( wp_unslash( (string) $value ) ) );
 		$rate = (float) $rate;
 		return max( 0, min( 100, $rate ) );
+	}
+
+	/**
+	 * Public wrappers around the same validation save_from_wcfm_form()/save_admin_fields() use,
+	 * so bulk-import tooling (WGT_Bulk_Tax) updates products through the identical rules
+	 * instead of re-implementing them — a malformed HSN is silently dropped rather than saved,
+	 * same as the single-product forms.
+	 */
+	public static function update_hsn( $product_id, $raw_value ) {
+		self::save_hsn( $product_id, $raw_value );
+	}
+
+	public static function update_gst_rate( $product_id, $raw_value ) {
+		$raw_value = trim( (string) $raw_value );
+		if ( '' === $raw_value ) {
+			delete_post_meta( $product_id, self::RATE_META );
+			return;
+		}
+		update_post_meta( $product_id, self::RATE_META, self::sanitize_rate( $raw_value ) );
 	}
 
 	/**
@@ -130,6 +149,7 @@ class WGT_Product_Fields {
 			'value'   => $rate,
 			'options' => $this->rate_options(),
 			'class'   => 'wgt-field wgt-gst-rate-select',
+			'desc'    => self::completeness_status_text( $hsn, $rate ),
 		);
 
 		return $general_fields;
@@ -150,11 +170,11 @@ class WGT_Product_Fields {
 		}
 
 		if ( isset( $_POST['wgt_hsn_code'] ) ) {
-			$this->save_hsn( $product_id, $_POST['wgt_hsn_code'] );
+			self::save_hsn( $product_id, $_POST['wgt_hsn_code'] );
 		}
 
 		if ( isset( $_POST['wgt_gst_rate'] ) && '' !== $_POST['wgt_gst_rate'] ) {
-			update_post_meta( $product_id, self::RATE_META, $this->sanitize_rate( $_POST['wgt_gst_rate'] ) );
+			update_post_meta( $product_id, self::RATE_META, self::sanitize_rate( $_POST['wgt_gst_rate'] ) );
 		}
 	}
 
@@ -163,8 +183,8 @@ class WGT_Product_Fields {
 	 * length, non-digits) is silently dropped here rather than saved, and enforce_hsn_rules()
 	 * is what actually blocks the product from publishing and tells the user why.
 	 */
-	private function save_hsn( $product_id, $raw_value ) {
-		$hsn = $this->sanitize_hsn( $raw_value );
+	private static function save_hsn( $product_id, $raw_value ) {
+		$hsn = self::sanitize_hsn( $raw_value );
 		if ( '' === $hsn || self::is_valid_hsn( $hsn ) ) {
 			update_post_meta( $product_id, self::HSN_META, $hsn );
 		}
@@ -183,24 +203,82 @@ class WGT_Product_Fields {
 			</p>
 			<p class="form-field wgt_gst_rate_field">
 				<label for="wgt_gst_rate"><?php esc_html_e( 'GST Rate (%)', 'wcfm-gst-tcs' ); ?></label>
-				<select id="wgt_gst_rate" name="wgt_gst_rate">
+				<select id="wgt_gst_rate" name="wgt_gst_rate" class="wgt-gst-rate-select">
 					<option value=""><?php esc_html_e( 'Use default', 'wcfm-gst-tcs' ); ?></option>
 					<?php foreach ( self::GST_SLABS as $slab ) : ?>
 						<option value="<?php echo esc_attr( $slab ); ?>" <?php selected( (string) $rate, $slab ); ?>><?php echo esc_html( $slab ); ?>%</option>
 					<?php endforeach; ?>
 				</select>
 			</p>
+			<?php $this->render_completeness_status( $hsn, $rate ); ?>
 		</div>
 		<?php
 	}
 
+	/**
+	 * Inline "is this product's tax info ready to publish" line, shown right in the product
+	 * form — so a vendor sees and can fix a problem before attempting to publish, rather than
+	 * only finding out via enforce_hsn_rules() bouncing the product back to Pending afterwards.
+	 */
+	private function render_completeness_status( $hsn, $rate ) {
+		echo '<p class="wgt-tax-status" style="margin:4px 0 0;">';
+		foreach ( self::completeness_messages( $hsn, $rate ) as $message ) {
+			list( $level, $text ) = $message;
+			$color = 'error' === $level ? '#b32d2e' : ( 'warn' === $level ? '#996800' : '#1a7f37' );
+			$icon  = 'ok' === $level ? '✓' : '⚠';
+			echo '<span style="display:block;color:' . esc_attr( $color ) . ';">' . esc_html( $icon . ' ' . $text ) . '</span>';
+		}
+		echo '</p>';
+	}
+
+	/**
+	 * @return array<int,array{0:string,1:string}> Pairs of ('ok'|'warn'|'error', message).
+	 */
+	private static function completeness_messages( $hsn, $rate ) {
+		$settings     = WGT_Admin_Settings::get_settings();
+		$hsn_required = 'yes' === $settings['hsn_mandatory'];
+		$messages     = array();
+
+		if ( $hsn && ! self::is_valid_hsn( $hsn ) ) {
+			$messages[] = array( 'error', __( 'HSN/SAC must be exactly 6 digits.', 'wcfm-gst-tcs' ) );
+		} elseif ( ! $hsn && $hsn_required ) {
+			$messages[] = array( 'error', __( 'HSN/SAC is required before this product can be published.', 'wcfm-gst-tcs' ) );
+		} elseif ( ! $hsn ) {
+			$messages[] = array( 'warn', __( 'No HSN/SAC set — GST reports will show this product as unclassified until one is added.', 'wcfm-gst-tcs' ) );
+		}
+
+		if ( '' === $rate ) {
+			$messages[] = array( 'warn', __( 'No GST rate selected — the store default rate will be used instead.', 'wcfm-gst-tcs' ) );
+		}
+
+		if ( empty( $messages ) ) {
+			$messages[] = array( 'ok', __( 'Tax info complete.', 'wcfm-gst-tcs' ) );
+		}
+
+		return $messages;
+	}
+
+	/**
+	 * Plain-text (no markup) version of completeness_messages(), for surfaces like the WCFM
+	 * field 'desc' that render description text without trusting embedded HTML.
+	 */
+	private static function completeness_status_text( $hsn, $rate ) {
+		$lines = array();
+		foreach ( self::completeness_messages( $hsn, $rate ) as $message ) {
+			list( $level, $text ) = $message;
+			$icon    = 'ok' === $level ? '✓' : '⚠';
+			$lines[] = $icon . ' ' . $text;
+		}
+		return implode( ' ', $lines );
+	}
+
 	public function save_admin_fields( $post_id ) {
 		if ( isset( $_POST['wgt_hsn_code'] ) ) {
-			$this->save_hsn( $post_id, $_POST['wgt_hsn_code'] );
+			self::save_hsn( $post_id, $_POST['wgt_hsn_code'] );
 		}
 
 		if ( isset( $_POST['wgt_gst_rate'] ) && '' !== $_POST['wgt_gst_rate'] ) {
-			update_post_meta( $post_id, self::RATE_META, $this->sanitize_rate( $_POST['wgt_gst_rate'] ) );
+			update_post_meta( $post_id, self::RATE_META, self::sanitize_rate( $_POST['wgt_gst_rate'] ) );
 		} elseif ( isset( $_POST['wgt_gst_rate'] ) ) {
 			delete_post_meta( $post_id, self::RATE_META );
 		}
@@ -253,7 +331,7 @@ class WGT_Product_Fields {
 			return $data;
 		}
 
-		$hsn      = $this->sanitize_hsn( $_POST['wgt_hsn_code'] );
+		$hsn      = self::sanitize_hsn( $_POST['wgt_hsn_code'] );
 		$settings = WGT_Admin_Settings::get_settings();
 
 		$reason = '';
