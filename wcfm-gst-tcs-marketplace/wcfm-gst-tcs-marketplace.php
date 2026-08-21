@@ -3,7 +3,7 @@
  * Plugin Name: WCFM GST & TCS for Multivendor Marketplace
  * Plugin URI: https://example.com/wcfm-gst-tcs-marketplace
  * Description: Adds India GST (CGST/SGST/IGST) tax calculation and GST-TCS (Sec 52) compliance to a WCFM Marketplace multivendor store — per-product HSN/GST rates, vendor GSTIN capture, B2B checkout, PDF GST invoices, and GSTR-1/GSTR-8 style reports.
- * Version: 1.8.0
+ * Version: 1.9.0
  * Author: Soloman Dev
  * Text Domain: wcfm-gst-tcs
  * Domain Path: /languages
@@ -17,7 +17,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'WGT_VERSION', '1.8.0' );
+define( 'WGT_VERSION', '1.9.0' );
 define( 'WGT_PLUGIN_FILE', __FILE__ );
 define( 'WGT_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'WGT_PLUGIN_URL', plugin_dir_url( __FILE__ ) );

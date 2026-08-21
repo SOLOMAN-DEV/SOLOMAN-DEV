@@ -13,8 +13,15 @@ class WGT_Product_Fields {
 	const HSN_META  = '_wgt_hsn_code';
 	const RATE_META = '_wgt_gst_rate';
 
-	/** Common Indian GST slabs, offered as quick picks; vendors can still type any rate. */
-	const GST_SLABS = array( '0', '0.25', '3', '5', '12', '18', '28' );
+	/**
+	 * GST slabs offered on the product rate dropdown. Reflects the rate structure after the
+	 * September 2025 GST reform ("GST 2.0"): the old 12%/28% slabs were largely folded into
+	 * 5%/18%, and a new 40% de-merit rate was introduced for select luxury/sin goods. 12% and
+	 * 28% are kept in the list (not removed) for any legacy/residual items still taxed at the
+	 * old rates — check with a GST practitioner if unsure which slab a specific product now
+	 * falls under, since this plugin doesn't auto-map HSN codes to rates.
+	 */
+	const GST_SLABS = array( '0', '0.25', '3', '5', '12', '18', '28', '40' );
 
 	private static $instance = null;
 
@@ -149,7 +156,7 @@ class WGT_Product_Fields {
 			'value'   => $rate,
 			'options' => $this->rate_options(),
 			'class'   => 'wgt-field wgt-gst-rate-select',
-			'desc'    => self::completeness_status_text( $hsn, $rate ),
+			'desc'    => self::slab_help_text() . ' ' . self::completeness_status_text( $hsn, $rate ),
 		);
 
 		return $general_fields;
@@ -162,6 +169,14 @@ class WGT_Product_Fields {
 			$options[ $slab ] = sprintf( __( '%s%%', 'wcfm-gst-tcs' ), $slab );
 		}
 		return $options;
+	}
+
+	/**
+	 * Short static note next to the rate dropdown explaining the post-GST-2.0 slab
+	 * structure, since 12%/28% are legacy options now rather than the norm.
+	 */
+	private static function slab_help_text() {
+		return __( '5% and 18% are the current standard rates; 40% is the de-merit rate for select luxury/sin goods; 0.25%/3% remain for precious stones/gold. 12%/28% are kept only for legacy items still taxed at the old rates — confirm with your GST practitioner if unsure.', 'wcfm-gst-tcs' );
 	}
 
 	public function save_from_wcfm_form( $product_id, $form_data = array() ) {
@@ -209,6 +224,7 @@ class WGT_Product_Fields {
 						<option value="<?php echo esc_attr( $slab ); ?>" <?php selected( (string) $rate, $slab ); ?>><?php echo esc_html( $slab ); ?>%</option>
 					<?php endforeach; ?>
 				</select>
+				<span class="description"><?php echo esc_html( self::slab_help_text() ); ?></span>
 			</p>
 			<?php $this->render_completeness_status( $hsn, $rate ); ?>
 		</div>

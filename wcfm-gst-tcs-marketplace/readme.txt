@@ -6,7 +6,7 @@ Tested up to: 6.7
 Requires PHP: 7.4
 WC requires at least: 6.0
 WC tested up to: 9.5
-Stable tag: 1.8.0
+Stable tag: 1.9.0
 License: GPLv2 or later
 
 Adds India GST (CGST/SGST/IGST) tax calculation and GST-TCS (Section 52, CGST Act) compliance
@@ -21,12 +21,15 @@ to a WCFM Marketplace multivendor store.
 == What it does ==
 
 * Per-product HSN/SAC code and GST rate, editable from the WCFM vendor product manager
-  and from the wp-admin product edit screen (Tax tab). The GST rate is a dropdown of the
-  standard Indian GST slabs (0%, 0.25%, 3%, 5%, 12%, 18%, 28%) — the same "pick a tax code,
-  don't type a number" pattern Amazon/Flipkart use for seller listings — with a live preview
-  showing the CGST+SGST split for same-state buyers and the IGST rate for other states, and an
-  inline "tax info complete/incomplete" status right on the product form so a vendor sees and
-  fixes a problem before publishing rather than after.
+  and from the wp-admin product edit screen (Tax tab). The GST rate is a dropdown of Indian
+  GST slabs (0%, 0.25%, 3%, 5%, 12%, 18%, 28%, 40%) — the same "pick a tax code, don't type a
+  number" pattern Amazon/Flipkart use for seller listings — reflecting the post-September-2025
+  GST 2.0 structure: 5%/18% are the current standard rates, 40% is the de-merit rate for select
+  luxury/sin goods, 0.25%/3% remain for precious stones/gold, and 12%/28% are kept only for
+  legacy items still taxed at the old rates. A live preview under the dropdown shows the
+  CGST+SGST split for same-state buyers and the IGST rate for other states, and an inline
+  "tax info complete/incomplete" status on the product form itself catches a problem before
+  publishing rather than after.
 * Bulk HSN/GST update via CSV (Settings > GST & TCS > Bulk HSN/GST Update for admins, and on
   each vendor's own GST & TCS tab): export current listing tax data, edit it in a spreadsheet,
   and re-upload to update many products in one pass — mirroring the bulk tax-code sheets
@@ -148,6 +151,14 @@ to a WCFM Marketplace multivendor store.
   include PHPUnit.
 
 == Changelog ==
+
+= 1.9.0 =
+* Updated the product GST rate dropdown to add the 40% de-merit rate introduced by the
+  September 2025 GST reform ("GST 2.0"), and refreshed the on-screen guidance to reflect the
+  current slab structure: 5%/18% are now the standard rates, 40% covers select luxury/sin
+  goods, 0.25%/3% remain for precious stones/gold, and 12%/28% are kept in the list (not
+  removed) only for legacy items still taxed at the old rates. No products or historical
+  orders are affected — this only changes what's offered when picking a rate going forward.
 
 = 1.8.0 =
 * Product listing polish, informed by how Amazon/Flipkart guide sellers through GST setup:
