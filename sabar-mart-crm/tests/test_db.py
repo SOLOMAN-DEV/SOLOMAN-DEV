@@ -74,6 +74,17 @@ class BackendMixin:
             self.assertEqual((c.cart, c.browsed_categories, c.cart_updated_at),
                              ({"P-1": Decimal("99.50")}, {"apparel": 1}, NOW))
 
+    def test_purge_expired_idempotency_keys(self):
+        from sabar_mart_crm.models import IdempotencyRecord
+        backend = self.make_backend()
+        with backend.session() as crm:
+            crm.store.idempotency["a" * 64] = IdempotencyRecord("a" * 64, "x", "f", "null", NOW)
+        with backend.session() as crm:
+            self.assertEqual(crm.store.purge_idempotency(datetime(2000, 1, 1)), 0)  # nothing that old
+            self.assertEqual(crm.store.purge_idempotency(datetime(2999, 1, 1)), 1)
+        with backend.session() as crm:
+            self.assertEqual(len(crm.store.idempotency), 0)
+
     def test_concurrent_writers_lose_no_updates(self):
         # Two backends on one database stand in for two worker processes.
         backends = [self.make_backend(), SQLBackend(self.url)]

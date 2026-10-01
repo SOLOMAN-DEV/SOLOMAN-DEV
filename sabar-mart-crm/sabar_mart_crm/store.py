@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from collections.abc import MutableMapping
 from dataclasses import dataclass, field
+from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
@@ -19,6 +20,7 @@ from .models import (
     ApiUser,
     AuditEntry,
     Affiliate,
+    IdempotencyRecord,
     Attribution,
     Customer,
     InternalTask,
@@ -59,6 +61,7 @@ COLLECTIONS: dict[str, tuple[type, str, tuple[str, ...]]] = {
     "affiliate_payouts": (AffiliatePayout, "payout_id", ("affiliate_id",)),
     "users": (ApiUser, "username", ("key_hash",)),
     "audit": (AuditEntry, "audit_id", ("actor",)),
+    "idempotency": (IdempotencyRecord, "key_id", ()),
 }
 
 
@@ -79,6 +82,7 @@ class Store:
     affiliate_payouts: MutableMapping[str, AffiliatePayout] = field(default_factory=dict)
     users: MutableMapping[str, ApiUser] = field(default_factory=dict)
     audit: MutableMapping[str, AuditEntry] = field(default_factory=dict)
+    idempotency: MutableMapping[str, IdempotencyRecord] = field(default_factory=dict)
     sequences: dict[str, int] = field(default_factory=dict)
 
     def next_id(self, name: str) -> int:
@@ -90,6 +94,12 @@ class Store:
         """Records whose attributes equal every criterion. DBStore answers indexed ones with SQL."""
         return [r for r in getattr(self, collection).values()
                 if all(getattr(r, k) == v for k, v in criteria.items())]
+
+    def purge_idempotency(self, older_than: datetime) -> int:
+        stale = [k for k, r in self.idempotency.items() if r.created_at < older_than]
+        for k in stale:
+            del self.idempotency[k]
+        return len(stale)
 
     def recent(self, collection: str, limit: int) -> list[Any]:
         """The ``limit`` records with the highest IDs, newest first (IDs are zero-padded sequences)."""

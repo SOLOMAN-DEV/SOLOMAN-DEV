@@ -255,6 +255,57 @@ class APITests(unittest.TestCase):
         self.assertEqual([x["refund_id"] for x in listed], [r["refund_id"]])
         self.call("GET", "/refunds", "k-marketing", 403)
 
+    # --- idempotency -----------------------------------------------------------
+
+    def idem(self, method, path, key, idem_key, **kw):
+        headers = {**auth(key), "Idempotency-Key": idem_key}
+        return self.client.request(method, path, headers=headers, **kw)
+
+    def test_retried_create_is_replayed_not_duplicated(self):
+        body = {"customer_id": "C-1", "name": "Asha", "email": "asha@example.com", "phone": "98765"}
+        first = self.idem("POST", "/customers", "k-system", "signup-C-1", json=body)
+        again = self.idem("POST", "/customers", "k-system", "signup-C-1", json=body)
+        self.assertEqual((first.status_code, again.status_code), (201, 201))
+        self.assertEqual(first.json(), again.json())
+        self.assertNotIn("Idempotent-Replayed", first.headers)
+        self.assertEqual(again.headers["Idempotent-Replayed"], "true")
+        log = self.call("GET", "/audit", "k-admin", params={"actor": "env-system-1"})
+        self.assertEqual([e["outcome"] for e in log], ["replayed", "success"])
+
+    def test_retried_state_change_does_not_conflict(self):
+        self.seed_vendor()
+        self.seed_customer()
+        self.call("POST", "/orders", "k-system", 201,
+                  json={"order_id": "O-1", "customer_id": "C-1", "product_id": "P-1", "amount": "100"})
+        for _ in range(3):  # e.g. the storefront timed out and retried
+            self.assertEqual(self.idem("POST", "/orders/O-1/ship", "k-system", "ship-O-1", json={}).status_code, 204)
+        deliver = [self.idem("POST", "/orders/O-1/deliver", "k-system", "deliver-O-1").json() for _ in range(2)]
+        self.assertEqual(deliver[0], deliver[1])
+        ledger = self.call("GET", "/vendors/V-1/ledger", "k-finance")
+        self.assertEqual(ledger["gross_sales"], "100.00")  # the sale was posted once
+        # Without a key, a repeat is still rejected as before.
+        self.call("POST", "/orders/O-1/deliver", "k-system", 409)
+
+    def test_idempotency_key_misuse(self):
+        self.seed_customer()
+        ok = self.idem("POST", "/customers/C-1/browse", "k-system", "k1", json={"category": "books"})
+        self.assertEqual(ok.status_code, 204)
+        clash = self.idem("POST", "/customers/C-1/browse", "k-system", "k1", json={"category": "toys"})
+        self.assertEqual(clash.status_code, 422)
+        # Keys are scoped per caller: another client may use the same key independently.
+        self.assertEqual(self.idem("POST", "/customers/C-1/browse", "k-admin", "k1",
+                                   json={"category": "toys"}).status_code, 204)
+        self.assertEqual(self.idem("POST", "/customers/C-1/browse", "k-system", "x" * 256,
+                                   json={"category": "toys"}).status_code, 422)
+
+    def test_failed_request_is_not_remembered(self):
+        body = {"order_id": "O-1", "customer_id": "C-1", "product_id": "P-1", "amount": "100"}
+        self.assertEqual(self.idem("POST", "/orders", "k-system", "order-O-1", json=body).status_code, 404)
+        self.seed_vendor()
+        self.seed_customer()
+        retry = self.idem("POST", "/orders", "k-system", "order-O-1", json=body)
+        self.assertEqual((retry.status_code, retry.headers.get("Idempotent-Replayed")), (201, None))
+
     def test_analytics(self):
         self.seed_vendor()
         self.seed_customer()

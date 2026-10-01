@@ -252,6 +252,15 @@ class AuditEntry:
     outcome: str  # success | denied | not_found | conflict | invalid | error
 
 
+@dataclass
+class IdempotencyRecord:
+    key_id: str        # sha256(actor + key): keys are scoped to the caller
+    actor: str
+    fingerprint: str   # sha256 of method, path, query and body
+    response: str      # JSON of the original result, replayed on retries
+    created_at: datetime
+
+
 # --- Internal workflow ---------------------------------------------------
 
 class TaskStatus(str, Enum):

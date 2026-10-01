@@ -13,7 +13,9 @@ never receives a success for a write that was not saved.
 """
 
 import functools
+import hashlib
 import hmac
+import json
 from dataclasses import dataclass
 import inspect
 import os
@@ -23,7 +25,7 @@ from decimal import Decimal
 from typing import Annotated, Any
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 
@@ -33,6 +35,7 @@ from .models import (
     AuditEntry,
     Affiliate,
     Customer,
+    IdempotencyRecord,
     MarketingAsset,
     Order,
     SupportTicket,
@@ -175,6 +178,34 @@ class AssetIn(BaseModel):
     restricted_to_tier: str | None = Field(default=None, pattern="^(" + "|".join(t[0] for t in config.AFFILIATE_TIERS) + ")$")
 
 
+# --- Idempotency -------------------------------------------------------------
+
+def request_fingerprint(request: Request, kwargs: Mapping[str, Any]) -> str:
+    bodies = {k: v.model_dump(mode="json") for k, v in sorted(kwargs.items()) if isinstance(v, BaseModel)}
+    payload = json.dumps([request.method, request.url.path, request.url.query, bodies], sort_keys=True, default=str)
+    return hashlib.sha256(payload.encode()).hexdigest()
+
+
+def run_once(crm: CRMEngine, actor: str, key: str, fingerprint: str,
+             action: Callable[[], Any]) -> tuple[Any, bool]:
+    """Run ``action`` at most once per (actor, key). Returns (result, replayed).
+
+    The record is written in the caller's transaction, so it exists if and only if the
+    action's changes were committed.
+    """
+    key_id = hashlib.sha256(f"{actor}\0{key}".encode()).hexdigest()
+    existing = crm.store.idempotency.get(key_id)
+    if existing is not None:
+        if existing.fingerprint != fingerprint:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
+                                "Idempotency-Key was already used for a different request")
+        return json.loads(existing.response), True
+    result = to_jsonable(action())
+    crm.store.idempotency[key_id] = IdempotencyRecord(key_id, actor, fingerprint,
+                                                      json.dumps(result, default=str), utc_now())
+    return result, False
+
+
 # --- App factory --------------------------------------------------------------
 
 def create_app(
@@ -219,11 +250,27 @@ def create_app(
         sig = inspect.signature(fn)
 
         @functools.wraps(fn)
-        def wrapper(*args: Any, _audit_request: Request, **kwargs: Any) -> Any:
+        def wrapper(*args: Any, _audit_request: Request, _idem_response: Response, **kwargs: Any) -> Any:
             logged = audit_reads or _audit_request.method != "GET"
+            idem_key = _audit_request.headers.get("Idempotency-Key")
+            if idem_key is not None and _audit_request.method == "GET":
+                idem_key = None  # reads are naturally safe to retry
+            if idem_key is not None and not 1 <= len(idem_key) <= 255:
+                raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Idempotency-Key must be 1-255 characters")
             try:
                 with backend.session() as crm:
-                    result = fn(crm, *args, **kwargs)
+                    if idem_key is None:
+                        result = fn(crm, *args, **kwargs)
+                    else:
+                        actor: Actor = _audit_request.state.actor
+                        fingerprint = request_fingerprint(_audit_request, kwargs)
+                        result, replayed = run_once(crm, actor.name, idem_key, fingerprint,
+                                                    lambda: fn(crm, *args, **kwargs))
+                        if replayed:
+                            _idem_response.headers["Idempotent-Replayed"] = "true"
+                            if logged:
+                                audit(crm, _audit_request, "replayed")
+                            return result
                     if logged:
                         audit(crm, _audit_request, "success")
                     return result
@@ -237,6 +284,7 @@ def create_app(
 
         params = [p for n, p in sig.parameters.items() if n != "crm"]
         params.append(inspect.Parameter("_audit_request", inspect.Parameter.KEYWORD_ONLY, annotation=Request))
+        params.append(inspect.Parameter("_idem_response", inspect.Parameter.KEYWORD_ONLY, annotation=Response))
         wrapper.__signature__ = sig.replace(parameters=params)
         return wrapper
 

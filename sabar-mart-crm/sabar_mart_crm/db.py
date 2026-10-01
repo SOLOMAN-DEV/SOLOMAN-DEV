@@ -15,6 +15,7 @@ worker processes (as Passenger does on shared hosting).
     python -m sabar_mart_crm.db init     # create tables
     python -m sabar_mart_crm.db seed     # load the demo marketplace (empty database only)
     python -m sabar_mart_crm.db check    # test the connection and print row counts
+    python -m sabar_mart_crm.db purge    # delete expired idempotency keys (run daily from cron)
     python -m sabar_mart_crm.db user-add alice finance   # prints alice's API key (shown once)
     python -m sabar_mart_crm.db user-list
     python -m sabar_mart_crm.db user-disable alice
@@ -258,6 +259,11 @@ class DBStore(Store):
         keys = sorted(mapping._loaded, reverse=True)[:limit]  # includes rows added in this session
         return [mapping._loaded[k] for k in keys]
 
+    def purge_idempotency(self, older_than: datetime) -> int:
+        # Rows are never updated, so updated_at is the creation time: purge in SQL without loading them.
+        table = TABLES["idempotency"]
+        return self._conn.execute(delete(table).where(table.c.updated_at < older_than)).rowcount
+
     def flush(self) -> None:
         for name in COLLECTIONS:
             getattr(self, name).flush()
@@ -385,7 +391,7 @@ def backend_from_env(engine: CRMEngine | None = None) -> MemoryBackend | SQLBack
 
 def main(argv: list[str]) -> int:
     url = os.environ.get("DATABASE_URL")
-    commands = ("init", "seed", "check", "user-add", "user-list", "user-disable", "user-rotate")
+    commands = ("init", "seed", "check", "purge", "user-add", "user-list", "user-disable", "user-rotate")
     if not url or not argv or argv[0] not in commands:
         print(__doc__)
         return 2
@@ -393,6 +399,14 @@ def main(argv: list[str]) -> int:
     backend.create_schema()
     if argv[0].startswith("user-"):
         return _user_command(backend, argv)
+    if argv[0] == "purge":
+        from datetime import timedelta
+
+        from . import config
+        with backend.session() as crm:
+            n = crm.store.purge_idempotency(_utcnow() - timedelta(hours=config.IDEMPOTENCY_TTL_HOURS))
+        print(f"purged {n} expired idempotency keys")
+        return 0
     if argv[0] == "seed":
         if not backend.is_empty():
             print("database already has data; refusing to seed")

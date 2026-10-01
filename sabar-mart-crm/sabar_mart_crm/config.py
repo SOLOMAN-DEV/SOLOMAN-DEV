@@ -55,4 +55,7 @@ AFFILIATE_TIERS = (
     ("Platinum", 500, Decimal("0.10")),
 )
 
+# --- API ------------------------------------------------------------------
+IDEMPOTENCY_TTL_HOURS = 72  # how long a retried request is recognised and replayed
+
 MONEY_QUANT = Decimal("0.01")
