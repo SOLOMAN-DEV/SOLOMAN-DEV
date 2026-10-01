@@ -7,6 +7,7 @@ from typing import Any
 
 
 class Role(str, Enum):
+    SYSTEM = "system"  # storefront/backend integrations that push marketplace events
     SUPPORT_AGENT = "support_agent"
     FINANCE = "finance"
     VENDOR_MANAGER = "vendor_manager"
@@ -28,30 +29,45 @@ class Permission(str, Enum):
     VIEW_RECOMMENDATIONS = "customer:recommendations:view"
     VIEW_GLOBAL_ANALYTICS = "analytics:global:view"
     VIEW_TASKS = "tasks:view"
+    RESOLVE_TASKS = "tasks:resolve"
+    INGEST_EVENTS = "events:ingest"
+    SUBMIT_TICKETS = "support:tickets:submit"
+    REQUEST_REFUNDS = "support:refunds:request"
+    MANAGE_AFFILIATES = "affiliate:manage"
+    RUN_PAYOUTS = "finance:payouts:run"
 
 
 ROLE_PERMISSIONS: dict[Role, frozenset[Permission]] = {
+    Role.SYSTEM: frozenset({Permission.INGEST_EVENTS, Permission.SUBMIT_TICKETS}),
     Role.SUPPORT_AGENT: frozenset({
         Permission.VIEW_CUSTOMER_PROFILE,
         Permission.VIEW_CUSTOMER_PII,
         Permission.VIEW_TICKETS,
         Permission.VIEW_TASKS,
+        Permission.RESOLVE_TASKS,
+        Permission.SUBMIT_TICKETS,
+        Permission.REQUEST_REFUNDS,
     }),
     Role.FINANCE: frozenset({
         Permission.VIEW_VENDOR_LEDGER,
         Permission.VIEW_AFFILIATE_PAYOUTS,
         Permission.VIEW_VENDOR_PROFILE,
         Permission.VIEW_TASKS,
+        Permission.RESOLVE_TASKS,
+        Permission.RUN_PAYOUTS,
     }),
     Role.VENDOR_MANAGER: frozenset({
         Permission.VIEW_VENDOR_PROFILE,
         Permission.MANAGE_VENDOR_ONBOARDING,
         Permission.VIEW_TASKS,
+        Permission.RESOLVE_TASKS,
     }),
     Role.AFFILIATE_MANAGER: frozenset({
         Permission.VIEW_AFFILIATES,
         Permission.DISTRIBUTE_ASSETS,
+        Permission.MANAGE_AFFILIATES,
         Permission.VIEW_TASKS,
+        Permission.RESOLVE_TASKS,
     }),
     Role.MARKETING: frozenset({
         Permission.VIEW_CUSTOMER_PROFILE,  # PII masked: no VIEW_CUSTOMER_PII
@@ -63,6 +79,7 @@ ROLE_PERMISSIONS: dict[Role, frozenset[Permission]] = {
 
 # Which team's queue each role may read.
 ROLE_TEAMS: dict[Role, frozenset[str]] = {
+    Role.SYSTEM: frozenset(),
     Role.SUPPORT_AGENT: frozenset({"customer_support", "trust_and_safety"}),
     Role.FINANCE: frozenset({"finance"}),
     Role.VENDOR_MANAGER: frozenset({"vendor_success"}),
