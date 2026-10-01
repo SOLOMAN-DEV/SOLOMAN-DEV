@@ -44,7 +44,8 @@ curl -H "Authorization: Bearer sk-admin-change-me" localhost:8000/analytics
 |---|---|
 | Meta | `GET /health`, `GET /me` |
 | Customers | `POST /customers`, `GET /customers/{id}`, `GET /customers/{id}/recommendations`, `GET /customers/abandoned-carts`, `POST /customers/{id}/browse`, `PUT` and `DELETE /customers/{id}/cart/{product_id}` |
-| Orders | `POST /products`, `POST /orders`, `POST /orders/{id}/ship`, `/deliver`, `/return`, `/cancel` |
+| Storefront | `POST /events`: batches of up to 100 events, each applied at most once, in order (see below) |
+| Orders | `POST /products`, `PUT /products/{id}` (create or update), `POST /orders`, `POST /orders/{id}/ship`, `/deliver`, `/return`, `/cancel` |
 | Support | `POST /tickets`, `GET /tickets` |
 | Refunds | `POST /orders/{id}/refunds`, `GET /refunds?status=&order_id=`, `POST /refunds/{id}/approve`, `POST /refunds/{id}/reject` |
 | Vendors | `POST /vendors`, `GET /vendors/{id}`, `PUT /vendors/{id}/documents/{doc}`, `POST /vendors/{id}/documents/{doc}/review`, `PUT /vendors/{id}/milestones/{m}`, `POST /vendors/{id}/reviews` |
@@ -55,7 +56,29 @@ curl -H "Authorization: Bearer sk-admin-change-me" localhost:8000/analytics
 
 Status codes: `401` for a missing or unknown key, `403` when the role lacks permission (checked before existence, so IDs cannot be probed), `404` for an unknown ID, `409` for a duplicate ID or a broken business rule (such as a return after the window or delivering before shipping), and `422` for an invalid body.
 
+**Safe retries.** Send an `Idempotency-Key` header with any change request, such as a UUID or `order.shipped:O-1`. If a request times out and the client sends it again with the same key, the CRM returns the original response with an `Idempotent-Replayed: true` header and does not apply the change a second time.
+- The key and the change are saved in the same transaction, so a key is only remembered once its change is committed.
+- Keys belong to the caller who sent them. Reusing a key for a different request returns `422`.
+- Keys are remembered for 72 hours. Run `python -m sabar_mart_crm.db purge` daily to remove older ones.
+
 The server decides some values itself instead of trusting the client. It sets every timestamp. It takes an order's vendor and category from the product catalog. It works out an affiliate's tier from their completed orders before handing out tier-restricted assets.
+
+### Connecting the storefront (Node.js)
+
+[`clients/node`](clients/node) is a ready-made package for the sabarmart.com Node.js backend. It has three parts:
+- **Event builders:** create each event with a stable ID.
+- **Outbox:** the store writes each event in the same database transaction as the order or signup.
+- **Background worker:** delivers the events to `POST /events`, in order and with retries.
+
+Checkout never waits on the CRM, and an outage loses nothing. See its [README](clients/node/README.md) and the [Express example](clients/node/examples/express-integration.js).
+
+`POST /events` takes `{"events": [{"id", "type", "data"}]}`. Each event is applied in its own transaction, and its `id` doubles as its idempotency key. Each result has a `status`:
+- `ok`: applied.
+- `replayed`: already applied earlier; nothing changed.
+- `error`: rejected. `retryable` says whether sending it again can help.
+- `not_processed`: skipped after a retryable error, so later events can't overtake earlier ones.
+
+Event types: `customer.registered`, `customer.browsed`, `cart.item_added`, `cart.item_removed`, `product.upserted`, `order.placed`, `order.shipped`, `order.delivered`, `order.returned`, `order.cancelled`, `referral.clicked`, `vendor.reviewed`, `ticket.created`.
 
 ### Storage
 

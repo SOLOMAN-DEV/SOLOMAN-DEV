@@ -1,0 +1,20 @@
+{
+  "name": "@sabarmart/crm-client",
+  "version": "1.0.0",
+  "description": "Node.js client and transactional outbox for the Sabar Mart CRM API",
+  "main": "src/index.js",
+  "types": "src/index.d.ts",
+  "files": ["src", "sql", "README.md"],
+  "engines": { "node": ">=18" },
+  "scripts": {
+    "test": "node --test"
+  },
+  "peerDependencies": {
+    "mysql2": ">=3"
+  },
+  "peerDependenciesMeta": {
+    "mysql2": { "optional": true }
+  },
+  "license": "UNLICENSED",
+  "private": true
+}

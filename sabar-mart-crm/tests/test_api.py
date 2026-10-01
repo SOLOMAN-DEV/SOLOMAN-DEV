@@ -306,6 +306,54 @@ class APITests(unittest.TestCase):
         retry = self.idem("POST", "/orders", "k-system", "order-O-1", json=body)
         self.assertEqual((retry.status_code, retry.headers.get("Idempotent-Replayed")), (201, None))
 
+    # --- storefront events -------------------------------------------------------
+
+    def storefront_events(self):
+        return [
+            {"id": "e1", "type": "product.upserted",
+             "data": {"product_id": "P-1", "vendor_id": "V-1", "name": "Kurta", "category": "apparel",
+                      "gst_rate": "0.05"}},
+            {"id": "e2", "type": "customer.registered",
+             "data": {"customer_id": "C-1", "name": "Asha", "email": "asha@example.com", "phone": "98765"}},
+            {"id": "e3", "type": "customer.browsed", "data": {"customer_id": "C-1", "category": "apparel"}},
+            {"id": "e4", "type": "order.placed",
+             "data": {"order_id": "O-1", "customer_id": "C-1", "product_id": "P-1", "amount": "1050.00"}},
+            {"id": "e5", "type": "order.shipped", "data": {"order_id": "O-1", "late": False}},
+            {"id": "e6", "type": "order.delivered", "data": {"order_id": "O-1"}},
+        ]
+
+    def test_event_batch_applies_in_order_and_replays(self):
+        self.call("POST", "/vendors", "k-vendor", 201,
+                  json={"vendor_id": "V-1", "store_name": "Kiran", "contact_email": "ops@kiran.example"})
+        first = self.call("POST", "/events", "k-system", json={"events": self.storefront_events()})
+        self.assertEqual(first["summary"], {"ok": 6, "replayed": 0, "error": 0, "not_processed": 0})
+        again = self.call("POST", "/events", "k-system", json={"events": self.storefront_events()})
+        self.assertEqual(again["summary"], {"ok": 0, "replayed": 6, "error": 0, "not_processed": 0})
+        self.assertEqual(first["results"][5]["result"], again["results"][5]["result"])
+        ledger = self.call("GET", "/vendors/V-1/ledger", "k-finance")
+        self.assertEqual((ledger["gross_sales"], ledger["tcs_withheld"]), ("1050.00", "5.00"))  # once, on 1000
+
+    def test_event_errors_are_per_event(self):
+        events = self.storefront_events()  # vendor V-1 missing: the product upsert fails permanently
+        events.insert(0, {"id": "bad", "type": "no.such.type", "data": {}})
+        events.append({"id": "e7", "type": "order.shipped", "data": {"order_id": 42}})
+        res = self.call("POST", "/events", "k-system", json={"events": events})["results"]
+        statuses = [(r["id"], r["status"], r.get("http_status")) for r in res]
+        self.assertEqual(statuses[:3], [("bad", "error", 422), ("e1", "error", 404), ("e2", "ok", None)])
+        self.assertEqual(statuses[-1], ("e7", "error", 422))
+        self.assertFalse(any(r.get("retryable") for r in res))
+        self.call("POST", "/events", "k-marketing", 403, json={"events": events[:1]})
+        self.call("POST", "/events", "k-system", 422, json={"events": []})
+
+    def test_product_upsert(self):
+        self.seed_vendor()
+        body = {"vendor_id": "V-1", "name": "Kurta v2", "category": "apparel", "gst_rate": "0.18"}
+        self.assertFalse(self.call("PUT", "/products/P-1", "k-system", json=body)["created"])
+        self.assertTrue(self.call("PUT", "/products/P-2", "k-system", json=body)["created"])
+        self.call("POST", "/vendors", "k-vendor", 201,
+                  json={"vendor_id": "V-2", "store_name": "Other", "contact_email": "o@other.example"})
+        self.call("PUT", "/products/P-1", "k-system", 409, json={**body, "vendor_id": "V-2"})
+
     def test_analytics(self):
         self.seed_vendor()
         self.seed_customer()

@@ -27,7 +27,7 @@ from typing import Annotated, Any
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
 from fastapi.responses import JSONResponse, Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 from . import config
 from .engine import CRMEngine
@@ -103,13 +103,26 @@ class CartItemIn(BaseModel):
     price: Decimal = MONEY
 
 
-class ProductIn(BaseModel):
-    product_id: str = ID
+class ProductUpsertIn(BaseModel):
     vendor_id: str = ID
     name: str = Field(min_length=1, max_length=200)
     category: str = Field(min_length=1, max_length=64)
     gst_rate: Decimal = Field(ge=0, le=config.MAX_GST_RATE, decimal_places=4,
                               description="GST rate included in the price, e.g. 0.18 for 18%")
+
+
+class ProductIn(ProductUpsertIn):
+    product_id: str = ID
+
+
+class EventIn(BaseModel):
+    id: str = Field(min_length=1, max_length=200, description="Unique per event; retries must reuse it")
+    type: str = Field(min_length=1, max_length=64)
+    data: dict[str, Any] = Field(default_factory=dict)
+
+
+class EventBatchIn(BaseModel):
+    events: list[EventIn] = Field(min_length=1, max_length=100)
 
 
 class OrderIn(BaseModel):
@@ -412,6 +425,22 @@ def create_app(
         crm.store.products[body.product_id] = Product(body.product_id, body.vendor_id, body.name, body.category,
                                                      gst_rate=body.gst_rate)
         return {"product_id": body.product_id}
+
+    @app.put("/products/{product_id}", tags=["orders"])
+    @tx
+    def upsert_product(crm: CRMEngine, product_id: str, body: ProductUpsertIn, role: RoleDep) -> dict[str, Any]:
+        """Create the product, or update its name, category and GST rate (past orders keep their rate)."""
+        require(role, Permission.INGEST_EVENTS)
+        found(crm.store.vendors, body.vendor_id, "vendor")
+        existing = crm.store.products.get(product_id)
+        if existing is None:
+            crm.store.products[product_id] = Product(product_id, body.vendor_id, body.name, body.category,
+                                                     gst_rate=body.gst_rate)
+            return {"product_id": product_id, "created": True}
+        if existing.vendor_id != body.vendor_id:
+            raise HTTPException(status.HTTP_409_CONFLICT, f"product '{product_id}' belongs to another vendor")
+        existing.name, existing.category, existing.gst_rate = body.name, body.category, body.gst_rate
+        return {"product_id": product_id, "created": False}
 
     @app.post("/orders", status_code=201, tags=["orders"])
     @tx
@@ -716,6 +745,101 @@ def create_app(
         entries = (sorted(crm.store.find("audit", actor=actor), key=lambda e: e.audit_id, reverse=True)[:limit]
                    if actor else crm.store.recent("audit", limit))
         return to_jsonable(entries)
+
+    # --- Batched storefront events ------------------------------------------------------------
+
+    # event type -> (endpoint, fields of ``data`` that are path parameters, body model or None)
+    event_types: dict[str, tuple[Callable[..., Any], tuple[str, ...], type[BaseModel] | None]] = {
+        "customer.registered": (register_customer, (), CustomerIn),
+        "customer.browsed": (record_browse, ("customer_id",), BrowseIn),
+        "cart.item_added": (add_to_cart, ("customer_id", "product_id"), CartItemIn),
+        "cart.item_removed": (remove_from_cart, ("customer_id", "product_id"), None),
+        "product.upserted": (upsert_product, ("product_id",), ProductUpsertIn),
+        "order.placed": (place_order, (), OrderIn),
+        "order.shipped": (ship_order, ("order_id",), ShipIn),
+        "order.delivered": (deliver_order, ("order_id",), None),
+        "order.returned": (return_order, ("order_id",), None),
+        "order.cancelled": (cancel_order, ("order_id",), None),
+        "referral.clicked": (track_click, (), ClickIn),
+        "vendor.reviewed": (add_review, ("vendor_id",), ReviewIn),
+        "ticket.created": (submit_ticket, (), TicketIn),
+    }
+
+    def event_call(event: EventIn, actor: Actor) -> Callable[[CRMEngine], Any]:
+        """Validate an event and bind it to its endpoint; raises HTTPException(422) if invalid."""
+        if event.type not in event_types:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, f"unknown event type '{event.type}'")
+        endpoint, path_fields, model = event_types[event.type]
+        raw = endpoint.__wrapped__  # the endpoint without its own transaction
+        kwargs: dict[str, Any] = {}
+        for name in path_fields:
+            value = event.data.get(name)
+            if not isinstance(value, str) or not 1 <= len(value) <= 64:
+                raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, f"data.{name} must be a 1-64 char string")
+            kwargs[name] = value
+        if model is not None:
+            try:
+                kwargs["body"] = model.model_validate({k: v for k, v in event.data.items() if k not in path_fields})
+            except ValidationError as exc:
+                raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
+                                    json.loads(exc.json(include_url=False))) from None
+        params = inspect.signature(raw).parameters
+        if "role" in params:
+            kwargs["role"] = actor.role
+        if "actor" in params:
+            kwargs["actor"] = actor
+        return lambda crm: raw(crm, **kwargs)
+
+    def audit_event(crm: CRMEngine, actor: Actor, event_type: str, outcome: str) -> None:
+        entry = AuditEntry(f"AUD-{crm.store.next_id('audit'):010d}", clock(), actor.name, actor.role.value,
+                           "EVENT", f"/events/{event_type}", outcome)
+        crm.store.audit[entry.audit_id] = entry
+
+    @app.post("/events", tags=["storefront"])
+    def ingest_events(body: EventBatchIn, actor: ActorDep) -> dict[str, Any]:
+        """Apply storefront events in order, each in its own transaction and at most once.
+
+        Each event's ``id`` is its idempotency key, so re-sending a batch is safe: events
+        already applied are replayed, not repeated. Per-event ``status``: ``ok``, ``replayed``,
+        ``error`` (``retryable`` says whether re-sending can help) or ``not_processed``
+        (skipped after a retryable error, to keep events in order).
+        """
+        require(actor.role, Permission.INGEST_EVENTS)
+        results: list[dict[str, Any]] = []
+        stop = False
+        for event in body.events:
+            if stop:
+                results.append({"id": event.id, "status": "not_processed", "retryable": True})
+                continue
+            fingerprint = hashlib.sha256(json.dumps([event.type, event.data], sort_keys=True,
+                                                    default=str).encode()).hexdigest()
+            try:
+                call = event_call(event, actor)
+                with backend.session() as crm:
+                    result, replayed = run_once(crm, actor.name, f"event:{event.id}", fingerprint,
+                                                lambda: call(crm))
+                    audit_event(crm, actor, event.type, "replayed" if replayed else "success")
+                results.append({"id": event.id, "status": "replayed" if replayed else "ok", "result": result})
+                continue
+            except StorageBusy as exc:
+                code, detail = 503, str(exc)
+            except AccessDenied as exc:
+                code, detail = 403, str(exc)
+            except HTTPException as exc:
+                code, detail = exc.status_code, exc.detail
+            except ValueError as exc:
+                code, detail = 409, str(exc)
+            retryable = code >= 500
+            if retryable:
+                stop = True
+            else:
+                with backend.session() as crm:
+                    audit_event(crm, actor, event.type, {403: "denied", 404: "not_found", 409: "conflict",
+                                                         422: "invalid"}.get(code, "error"))
+            results.append({"id": event.id, "status": "error", "http_status": code, "detail": detail,
+                            "retryable": retryable})
+        summary = {k: sum(r["status"] == k for r in results) for k in ("ok", "replayed", "error", "not_processed")}
+        return {"results": results, "summary": summary}
 
     # --- Internal tasks & analytics --------------------------------------------------------
 
