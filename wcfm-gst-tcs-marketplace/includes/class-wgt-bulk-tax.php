@@ -76,6 +76,17 @@ class WGT_Bulk_Tax {
 		<p class="description">
 			<?php esc_html_e( 'Columns: Product ID, SKU, Product Name, HSN, GST Rate. Product ID is used to match a row to a product; if it\'s blank or wrong, SKU is used instead. Product Name is ignored on import — it\'s only there so the sheet is readable. A blank HSN or GST Rate cell clears that field on the product, so delete any row you don\'t want touched rather than leaving its cells blank.', 'wcfm-gst-tcs' ); ?>
 		</p>
+		<p class="description">
+			<?php
+			echo esc_html(
+				sprintf(
+					/* translators: %s: comma-separated list of valid GST rate slabs */
+					__( 'GST Rate must be one of the current slabs: %s. A row with any other rate is skipped and listed below after upload.', 'wcfm-gst-tcs' ),
+					implode( ', ', WGT_Product_Fields::GST_SLABS )
+				)
+			);
+			?>
+		</p>
 		<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" enctype="multipart/form-data">
 			<input type="hidden" name="action" value="wgt_import_product_tax" />
 			<input type="hidden" name="scope" value="<?php echo esc_attr( $scope ); ?>" />
@@ -275,15 +286,44 @@ class WGT_Bulk_Tax {
 			return;
 		}
 
-		if ( '' !== trim( (string) $raw_rate ) && ! is_numeric( str_replace( ',', '', (string) $raw_rate ) ) ) {
-			/* translators: 1: row number, 2: product ID */
-			$result['errors'][] = sprintf( __( 'Row %1$d: GST rate for product #%2$d is not a number — row skipped.', 'wcfm-gst-tcs' ), $row_number, $product_id );
-			return;
+		$rate_trimmed = trim( (string) $raw_rate );
+		if ( '' !== $rate_trimmed ) {
+			if ( ! is_numeric( str_replace( ',', '', $rate_trimmed ) ) ) {
+				/* translators: 1: row number, 2: product ID */
+				$result['errors'][] = sprintf( __( 'Row %1$d: GST rate for product #%2$d is not a number — row skipped.', 'wcfm-gst-tcs' ), $row_number, $product_id );
+				return;
+			}
+			if ( ! $this->rate_matches_a_slab( $rate_trimmed ) ) {
+				/* translators: 1: row number, 2: product ID, 3: the rate that wasn't recognized, 4: comma-separated list of valid slabs */
+				$result['errors'][] = sprintf(
+					__( 'Row %1$d: GST rate for product #%2$d is %3$s%%, which isn\'t one of the current slabs (%4$s) — row skipped. Double-check it against current GST rules before re-uploading.', 'wcfm-gst-tcs' ),
+					$row_number,
+					$product_id,
+					$rate_trimmed,
+					implode( ', ', WGT_Product_Fields::GST_SLABS )
+				);
+				return;
+			}
 		}
 
 		WGT_Product_Fields::update_hsn( $product_id, $raw_hsn );
 		WGT_Product_Fields::update_gst_rate( $product_id, $raw_rate );
 		++$result['updated'];
+	}
+
+	/**
+	 * Same constraint the single-product rate dropdown enforces by only offering slab
+	 * options — bulk import validates against the identical list so a CSV can't sneak in a
+	 * rate that's not actually a current (or legacy-but-recognized) GST slab. Compares
+	 * numerically so "18", "18.0" and "18.00" are all treated as a match.
+	 */
+	private function rate_matches_a_slab( $rate ) {
+		foreach ( WGT_Product_Fields::GST_SLABS as $slab ) {
+			if ( abs( (float) $rate - (float) $slab ) < 0.001 ) {
+				return true;
+			}
+		}
+		return false;
 	}
 
 	private function store_result_and_redirect( $result, $redirect ) {

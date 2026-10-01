@@ -70,6 +70,14 @@ class WGT_Admin_Settings {
 			$gstin = '';
 		}
 
+		// The field is a dropdown restricted to GST_SLABS, so a value outside that list only
+		// happens via a tampered POST — fall back to "no default" rather than trust it.
+		$default_gst_rate = isset( $_POST['default_gst_rate'] ) ? sanitize_text_field( wp_unslash( $_POST['default_gst_rate'] ) ) : '';
+		if ( '' !== $default_gst_rate && ! in_array( $default_gst_rate, WGT_Product_Fields::GST_SLABS, true ) ) {
+			add_settings_error( 'wgt_settings', 'invalid_default_rate', __( 'Default GST rate must be one of the listed slabs. It was not saved.', 'wcfm-gst-tcs' ) );
+			$default_gst_rate = '';
+		}
+
 		$settings = array(
 			'enable_gst'         => isset( $_POST['enable_gst'] ) ? 'yes' : 'no',
 			'enable_tcs'         => isset( $_POST['enable_tcs'] ) ? 'yes' : 'no',
@@ -78,7 +86,7 @@ class WGT_Admin_Settings {
 			'company_gstin'      => $gstin,
 			'company_state'      => isset( $_POST['company_state'] ) ? sanitize_text_field( wp_unslash( $_POST['company_state'] ) ) : '',
 			'invoice_prefix'     => isset( $_POST['invoice_prefix'] ) ? sanitize_text_field( wp_unslash( $_POST['invoice_prefix'] ) ) : 'INV-',
-			'default_gst_rate'   => isset( $_POST['default_gst_rate'] ) ? wc_format_decimal( sanitize_text_field( wp_unslash( $_POST['default_gst_rate'] ) ) ) : '',
+			'default_gst_rate'   => $default_gst_rate,
 			'hsn_mandatory'      => isset( $_POST['hsn_mandatory'] ) ? 'yes' : 'no',
 			'enable_b2b'         => isset( $_POST['enable_b2b'] ) ? 'yes' : 'no',
 			'require_gstin_for_business' => isset( $_POST['require_gstin_for_business'] ) ? 'yes' : 'no',
@@ -164,8 +172,14 @@ class WGT_Admin_Settings {
 					<tr>
 						<th scope="row"><label for="default_gst_rate"><?php esc_html_e( 'Default GST rate (%)', 'wcfm-gst-tcs' ); ?></label></th>
 						<td>
-							<input type="number" step="0.01" min="0" max="100" id="default_gst_rate" name="default_gst_rate" value="<?php echo esc_attr( $settings['default_gst_rate'] ); ?>" class="small-text" />
-							<p class="description"><?php esc_html_e( 'Used only when a vendor has not set a GST rate on a product. Leave blank to treat un-rated products as 0% (exempt).', 'wcfm-gst-tcs' ); ?></p>
+							<select id="default_gst_rate" name="default_gst_rate">
+								<option value=""><?php esc_html_e( 'None (treat un-rated products as 0% / exempt)', 'wcfm-gst-tcs' ); ?></option>
+								<?php foreach ( WGT_Product_Fields::GST_SLABS as $slab ) : ?>
+									<option value="<?php echo esc_attr( $slab ); ?>" <?php selected( (string) $settings['default_gst_rate'], $slab ); ?>><?php echo esc_html( $slab ); ?>%</option>
+								<?php endforeach; ?>
+							</select>
+							<p class="description"><?php esc_html_e( 'Used only when a vendor has not set a GST rate on a product.', 'wcfm-gst-tcs' ); ?></p>
+							<p class="description"><?php echo esc_html( WGT_Product_Fields::slab_help_text() ); ?></p>
 						</td>
 					</tr>
 					<tr>

@@ -6,7 +6,7 @@ Tested up to: 6.7
 Requires PHP: 7.4
 WC requires at least: 6.0
 WC tested up to: 9.5
-Stable tag: 1.9.0
+Stable tag: 1.10.0
 License: GPLv2 or later
 
 Adds India GST (CGST/SGST/IGST) tax calculation and GST-TCS (Section 52, CGST Act) compliance
@@ -151,6 +151,16 @@ to a WCFM Marketplace multivendor store.
   include PHPUnit.
 
 == Changelog ==
+
+= 1.10.0 =
+* Extended the GST 2.0 slab update (1.9.0) to the rest of the admin/vendor surfaces instead of
+  just the per-product form: Settings > GST & TCS > "Default GST rate" is now the same slab
+  dropdown (0/0.25/3/5/12/18/28/40%), with server-side validation falling back to "no default"
+  if a tampered submission sends a rate outside that list.
+* Bulk HSN/GST CSV import now validates the GST Rate column against the same slab list,
+  rejecting (and reporting) any row with a rate that isn't a recognized current or legacy
+  slab, instead of accepting any numeric value — keeping bulk-imported data to the same
+  standard as the single-product dropdown. The upload page lists the valid slabs up front.
 
 = 1.9.0 =
 * Updated the product GST rate dropdown to add the 40% de-merit rate introduced by the

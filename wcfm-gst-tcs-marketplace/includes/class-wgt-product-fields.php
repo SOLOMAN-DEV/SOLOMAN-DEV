@@ -172,10 +172,12 @@ class WGT_Product_Fields {
 	}
 
 	/**
-	 * Short static note next to the rate dropdown explaining the post-GST-2.0 slab
-	 * structure, since 12%/28% are legacy options now rather than the norm.
+	 * Short static note next to a GST rate dropdown explaining the post-GST-2.0 slab
+	 * structure, since 12%/28% are legacy options now rather than the norm. Public so other
+	 * settings screens offering the same GST_SLABS dropdown (e.g. the store-wide default
+	 * rate on Settings > GST & TCS) can reuse the identical wording instead of drifting.
 	 */
-	private static function slab_help_text() {
+	public static function slab_help_text() {
 		return __( '5% and 18% are the current standard rates; 40% is the de-merit rate for select luxury/sin goods; 0.25%/3% remain for precious stones/gold. 12%/28% are kept only for legacy items still taxed at the old rates — confirm with your GST practitioner if unsure.', 'wcfm-gst-tcs' );
 	}
 
