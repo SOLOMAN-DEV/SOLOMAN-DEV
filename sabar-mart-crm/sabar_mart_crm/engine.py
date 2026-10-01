@@ -25,7 +25,7 @@ from .vendors import VendorManager
 class CRMEngine:
     def __init__(self, store: Store | None = None) -> None:
         self.store = store or Store()
-        self.escalations = EscalationEngine()
+        self.escalations = EscalationEngine(self.store)
         self.customers = CustomerManager(self.store, self.escalations)
         self.vendors = VendorManager(self.store, self.escalations)
         self.affiliates = AffiliateManager(self.store, self.escalations)
@@ -136,10 +136,10 @@ class CRMEngine:
         orders = list(self.store.orders.values())
         status_counts = Counter(o.status.value for o in orders)
         gmv = money(sum((o.amount for o in orders if o.status == OrderStatus.DELIVERED), Decimal(0)))
-        commission = money(-sum((e.amount for e in self.store.ledger
+        commission = money(-sum((e.amount for e in self.store.ledger.values()
                                  if e.kind in ("commission", "commission_reversal")), Decimal(0)))
         stages = Counter(self.customers.lifecycle_stage(c, now).value for c in self.store.customers)
-        attributed = [o for o in orders if o.order_id in self.affiliates.attributions]
+        attributed = [o for o in orders if o.order_id in self.store.attributions]
         return to_jsonable({
             "generated_at": now,
             "customers": {"total": len(self.store.customers), "by_lifecycle_stage": dict(stages),

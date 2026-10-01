@@ -4,12 +4,11 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 from decimal import Decimal
-from itertools import count
 from typing import Any
 
 from . import config
 from .escalation import EscalationEngine
-from .models import Affiliate, MarketingAsset, Order, OrderStatus, Priority, ReferralClick, money
+from .models import Affiliate, Attribution, MarketingAsset, Order, OrderStatus, Priority, ReferralClick, money
 from .store import Store
 
 DUPLICATE_CLICK_WINDOW = timedelta(hours=24)
@@ -31,9 +30,6 @@ class AffiliateManager:
     def __init__(self, store: Store, escalations: EscalationEngine) -> None:
         self.store = store
         self.escalations = escalations
-        self._click_seq = count(1)
-        # order_id -> attribution record
-        self.attributions: dict[str, dict[str, Any]] = {}
 
     def register(self, affiliate: Affiliate) -> Affiliate:
         if self.store.affiliate_by_code(affiliate.referral_code):
@@ -55,13 +51,14 @@ class AffiliateManager:
             return {"valid": False, "reason": "affiliate_not_approved"}
         if product_id not in self.store.products:
             return {"valid": False, "reason": "unknown_product"}
-        for c in self.store.clicks:
-            if (c.referral_code == referral_code and c.product_id == product_id
+        for c in self.store.find("clicks", referral_code=referral_code):
+            if (c.product_id == product_id
                     and c.visitor_fingerprint == visitor_fingerprint
                     and now - c.clicked_at < DUPLICATE_CLICK_WINDOW):
                 return {"valid": False, "reason": "duplicate_click", "original_click_id": c.click_id}
-        click = ReferralClick(f"CLK-{next(self._click_seq):06d}", referral_code, product_id, now, visitor_fingerprint)
-        self.store.clicks.append(click)
+        click = ReferralClick(f"CLK-{self.store.next_id('click'):06d}", referral_code, product_id, now,
+                              visitor_fingerprint)
+        self.store.clicks[click.click_id] = click
         return {"valid": True, "click_id": click.click_id, "affiliate_id": affiliate.affiliate_id}
 
     def attribute(self, order: Order) -> dict[str, Any]:
@@ -85,16 +82,16 @@ class AffiliateManager:
             )
             return {"attributed": False, "reason": "self_referral"}
         window = timedelta(days=config.ATTRIBUTION_WINDOW_DAYS)
-        clicks = [c for c in self.store.clicks
-                  if c.referral_code == order.referral_code and c.product_id == order.product_id
+        clicks = [c for c in self.store.find("clicks", referral_code=order.referral_code)
+                  if c.product_id == order.product_id
                   and timedelta(0) <= order.placed_at - c.clicked_at <= window]
         if not clicks:
             return {"attributed": False, "reason": "no_qualifying_click_in_window"}
         click = max(clicks, key=lambda c: c.clicked_at)
-        record = {"attributed": True, "order_id": order.order_id, "affiliate_id": affiliate.affiliate_id,
-                  "click_id": click.click_id, "amount": order.amount}
-        self.attributions[order.order_id] = record
-        return record
+        self.store.attributions[order.order_id] = Attribution(
+            order.order_id, affiliate.affiliate_id, click.click_id, order.amount)
+        return {"attributed": True, "order_id": order.order_id, "affiliate_id": affiliate.affiliate_id,
+                "click_id": click.click_id, "amount": order.amount}
 
     # --- Commission calculation -----------------------------------------------
 
@@ -102,10 +99,8 @@ class AffiliateManager:
                              now: datetime) -> dict[str, Any]:
         """Commission on orders placed in the period whose return window has closed."""
         completed, pending, voided = [], [], []
-        for order_id, rec in self.attributions.items():
-            if rec["affiliate_id"] != affiliate_id:
-                continue
-            order = self.store.orders[order_id]
+        for rec in self.store.find("attributions", affiliate_id=affiliate_id):
+            order = self.store.orders[rec.order_id]
             if not period_start <= order.placed_at < period_end:
                 continue
             if order.status in (OrderStatus.RETURNED, OrderStatus.CANCELLED):

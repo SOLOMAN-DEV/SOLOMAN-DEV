@@ -3,18 +3,21 @@
 from __future__ import annotations
 
 from datetime import datetime
-from itertools import count
 from typing import Any
 
 from .models import InternalTask, Priority, TaskStatus
+from .store import Store
 
 
 class EscalationEngine:
     """Creates internal tasks, de-duplicating open tasks per (rule, subject)."""
 
-    def __init__(self) -> None:
-        self.tasks: dict[str, InternalTask] = {}
-        self._seq = count(1)
+    def __init__(self, store: Store) -> None:
+        self.store = store
+
+    @property
+    def tasks(self):
+        return self.store.tasks
 
     def raise_task(
         self,
@@ -34,7 +37,7 @@ class EscalationEngine:
             existing.details.update(details or {})
             return existing
         task = InternalTask(
-            task_id=f"TSK-{next(self._seq):05d}",
+            task_id=f"TSK-{self.store.next_id('task'):05d}",
             rule=rule,
             title=title,
             owner_team=owner_team,
@@ -48,8 +51,8 @@ class EscalationEngine:
         return task
 
     def open_task_for(self, rule: str, subject_id: str) -> InternalTask | None:
-        for task in self.tasks.values():
-            if task.rule == rule and task.subject_id == subject_id and task.status != TaskStatus.RESOLVED:
+        for task in self.store.find("tasks", subject_id=subject_id):
+            if task.rule == rule and task.status != TaskStatus.RESOLVED:
                 return task
         return None
 
@@ -61,6 +64,6 @@ class EscalationEngine:
     def queue_for(self, team: str) -> list[InternalTask]:
         order = {Priority.CRITICAL: 0, Priority.HIGH: 1, Priority.MEDIUM: 2, Priority.LOW: 3}
         return sorted(
-            (t for t in self.tasks.values() if t.owner_team == team and t.status != TaskStatus.RESOLVED),
+            (t for t in self.store.find("tasks", owner_team=team) if t.status != TaskStatus.RESOLVED),
             key=lambda t: (order[t.priority], t.created_at),
         )

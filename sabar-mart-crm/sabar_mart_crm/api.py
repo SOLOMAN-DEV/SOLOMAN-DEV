@@ -6,12 +6,15 @@ Every request (except /health) must send ``Authorization: Bearer <key>``. The ke
 decides the caller's role, and the role decides what the caller may see or do.
 Callers never choose their own role.
 
-Endpoints are ``async def`` with no awaits on purpose: they all run on the single
-event-loop thread, so calls into the (non-thread-safe) in-memory engine are
-serialized without a lock.
+Storage comes from ``DATABASE_URL`` (see ``sabar_mart_crm.db``); without it data is
+kept in memory. Each data endpoint runs inside one backend session (``@tx``), which
+holds the storage lock and commits before the response is returned, so a client
+never receives a success for a write that was not saved.
 """
 
+import functools
 import hmac
+import inspect
 import os
 from collections.abc import Callable, Mapping
 from datetime import datetime, timezone
@@ -34,6 +37,7 @@ from .models import (
     Vendor,
     to_jsonable,
 )
+from .db import MemoryBackend, SQLBackend, StorageBusy, backend_from_env
 from .rbac import AccessDenied, Permission, Role, has_permission, mask_pii, require, require_team
 from .store import Product
 
@@ -150,22 +154,44 @@ def create_app(
     engine: CRMEngine | None = None,
     api_keys: Mapping[str, Role] | None = None,
     clock: Clock = utc_now,
+    backend: MemoryBackend | SQLBackend | None = None,
 ) -> FastAPI:
-    crm = engine or CRMEngine()
+    """Build the app. Storage: ``backend`` if given, else ``engine`` in memory, else from ``DATABASE_URL``."""
+    if backend is None:
+        backend = MemoryBackend(engine) if engine is not None else backend_from_env()
     keys = dict(api_keys) if api_keys is not None else parse_api_keys(os.environ.get("SABAR_CRM_API_KEYS", ""))
-    store = crm.store
     bearer = HTTPBearer(auto_error=False)
 
+    docs = os.environ.get("SABAR_CRM_DOCS", "1") == "1"
     app = FastAPI(
+        docs_url="/docs" if docs else None,
+        redoc_url="/redoc" if docs else None,
+        openapi_url="/openapi.json" if docs else None,
         title="Sabar Mart CRM API",
         version="1.0.0",
         description="REST access to the Sabar Mart CRM engine: customers, vendors, affiliates and internal tasks.",
     )
-    app.state.crm = crm
+    app.state.backend = backend
+
+    def tx(fn: Callable[..., Any]) -> Callable[..., Any]:
+        """Run the endpoint inside a backend session; FastAPI sees the signature without ``crm``."""
+        sig = inspect.signature(fn)
+
+        @functools.wraps(fn)
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
+            with backend.session() as crm:
+                return fn(crm, *args, **kwargs)
+
+        wrapper.__signature__ = sig.replace(parameters=[p for n, p in sig.parameters.items() if n != "crm"])
+        return wrapper
 
     @app.exception_handler(AccessDenied)
     async def _forbidden(_: Request, exc: AccessDenied) -> JSONResponse:
         return JSONResponse(status_code=403, content={"detail": str(exc)})
+
+    @app.exception_handler(StorageBusy)
+    async def _busy(_: Request, exc: StorageBusy) -> JSONResponse:
+        return JSONResponse(status_code=503, content={"detail": str(exc)}, headers={"Retry-After": "5"})
 
     @app.exception_handler(ValueError)
     async def _conflict(_: Request, exc: ValueError) -> JSONResponse:
@@ -209,108 +235,123 @@ def create_app(
     # --- Customers --------------------------------------------------------------
 
     @app.post("/customers", status_code=201, tags=["customers"])
-    async def register_customer(body: CustomerIn, role: RoleDep) -> dict[str, Any]:
+    @tx
+    def register_customer(crm: CRMEngine, body: CustomerIn, role: RoleDep) -> dict[str, Any]:
         require(role, Permission.INGEST_EVENTS)
-        absent(store.customers, body.customer_id, "customer")
+        absent(crm.store.customers, body.customer_id, "customer")
         crm.customers.register(Customer(body.customer_id, body.name, body.email, body.phone, clock()))
         return {"customer_id": body.customer_id}
 
     @app.get("/customers/abandoned-carts", tags=["customers"])
-    async def abandoned_carts(role: RoleDep) -> list[dict[str, Any]]:
+    @tx
+    def abandoned_carts(crm: CRMEngine, role: RoleDep) -> list[dict[str, Any]]:
         require(role, Permission.VIEW_CUSTOMER_PROFILE)
         return crm.customers.abandoned_carts(clock())
 
     @app.get("/customers/{customer_id}", tags=["customers"])
-    async def customer_profile(customer_id: str, role: RoleDep) -> dict[str, Any]:
+    @tx
+    def customer_profile(crm: CRMEngine, customer_id: str, role: RoleDep) -> dict[str, Any]:
         require(role, Permission.VIEW_CUSTOMER_PROFILE)
-        found(store.customers, customer_id, "customer")
+        found(crm.store.customers, customer_id, "customer")
         return crm.customer_profile(role, customer_id, clock())
 
     @app.get("/customers/{customer_id}/recommendations", tags=["customers"])
-    async def recommendations(customer_id: str, role: RoleDep, limit: int = 5) -> list[dict[str, Any]]:
+    @tx
+    def recommendations(crm: CRMEngine, customer_id: str, role: RoleDep, limit: int = 5) -> list[dict[str, Any]]:
         require(role, Permission.VIEW_RECOMMENDATIONS)
-        found(store.customers, customer_id, "customer")
+        found(crm.store.customers, customer_id, "customer")
         return crm.customers.recommendations(customer_id, max(1, min(limit, 50)))
 
     @app.post("/customers/{customer_id}/browse", status_code=204, tags=["customers"])
-    async def record_browse(customer_id: str, body: BrowseIn, role: RoleDep) -> None:
+    @tx
+    def record_browse(crm: CRMEngine, customer_id: str, body: BrowseIn, role: RoleDep) -> None:
         require(role, Permission.INGEST_EVENTS)
-        found(store.customers, customer_id, "customer")
+        found(crm.store.customers, customer_id, "customer")
         crm.customers.record_browse(customer_id, body.category)
 
     @app.put("/customers/{customer_id}/cart/{product_id}", status_code=204, tags=["customers"])
-    async def add_to_cart(customer_id: str, product_id: str, body: CartItemIn, role: RoleDep) -> None:
+    @tx
+    def add_to_cart(crm: CRMEngine, customer_id: str, product_id: str, body: CartItemIn, role: RoleDep) -> None:
         require(role, Permission.INGEST_EVENTS)
-        found(store.customers, customer_id, "customer")
-        found(store.products, product_id, "product")
+        found(crm.store.customers, customer_id, "customer")
+        found(crm.store.products, product_id, "product")
         crm.customers.update_cart(customer_id, product_id, body.price, clock())
 
     @app.delete("/customers/{customer_id}/cart/{product_id}", status_code=204, tags=["customers"])
-    async def remove_from_cart(customer_id: str, product_id: str, role: RoleDep) -> None:
+    @tx
+    def remove_from_cart(crm: CRMEngine, customer_id: str, product_id: str, role: RoleDep) -> None:
         require(role, Permission.INGEST_EVENTS)
-        found(store.customers, customer_id, "customer")
+        found(crm.store.customers, customer_id, "customer")
         crm.customers.update_cart(customer_id, product_id, None, clock())
 
     # --- Products & orders --------------------------------------------------------
 
     @app.post("/products", status_code=201, tags=["orders"])
-    async def add_product(body: ProductIn, role: RoleDep) -> dict[str, Any]:
+    @tx
+    def add_product(crm: CRMEngine, body: ProductIn, role: RoleDep) -> dict[str, Any]:
         require(role, Permission.INGEST_EVENTS)
-        absent(store.products, body.product_id, "product")
-        found(store.vendors, body.vendor_id, "vendor")
-        store.products[body.product_id] = Product(body.product_id, body.vendor_id, body.name, body.category)
+        absent(crm.store.products, body.product_id, "product")
+        found(crm.store.vendors, body.vendor_id, "vendor")
+        crm.store.products[body.product_id] = Product(body.product_id, body.vendor_id, body.name, body.category)
         return {"product_id": body.product_id}
 
     @app.post("/orders", status_code=201, tags=["orders"])
-    async def place_order(body: OrderIn, role: RoleDep) -> dict[str, Any]:
+    @tx
+    def place_order(crm: CRMEngine, body: OrderIn, role: RoleDep) -> dict[str, Any]:
         require(role, Permission.INGEST_EVENTS)
-        absent(store.orders, body.order_id, "order")
-        found(store.customers, body.customer_id, "customer")
-        product = found(store.products, body.product_id, "product")
+        absent(crm.store.orders, body.order_id, "order")
+        found(crm.store.customers, body.customer_id, "customer")
+        product = found(crm.store.products, body.product_id, "product")
         # Vendor and category come from the catalog, never from the client.
         order = Order(body.order_id, body.customer_id, product.vendor_id, product.product_id, product.category,
                       body.amount, clock(), referral_code=body.referral_code)
         return to_jsonable(crm.place_order(order))
 
     @app.post("/orders/{order_id}/ship", status_code=204, tags=["orders"])
-    async def ship_order(order_id: str, body: ShipIn, role: RoleDep) -> None:
+    @tx
+    def ship_order(crm: CRMEngine, order_id: str, body: ShipIn, role: RoleDep) -> None:
         require(role, Permission.INGEST_EVENTS)
-        found(store.orders, order_id, "order")
+        found(crm.store.orders, order_id, "order")
         crm.ship_order(order_id, late=body.late, now=clock())
 
     @app.post("/orders/{order_id}/deliver", tags=["orders"])
-    async def deliver_order(order_id: str, role: RoleDep) -> dict[str, Any]:
+    @tx
+    def deliver_order(crm: CRMEngine, order_id: str, role: RoleDep) -> dict[str, Any]:
         require(role, Permission.INGEST_EVENTS)
-        found(store.orders, order_id, "order")
+        found(crm.store.orders, order_id, "order")
         return to_jsonable(crm.deliver_order(order_id, now=clock()))
 
     @app.post("/orders/{order_id}/return", status_code=204, tags=["orders"])
-    async def return_order(order_id: str, role: RoleDep) -> None:
+    @tx
+    def return_order(crm: CRMEngine, order_id: str, role: RoleDep) -> None:
         require(role, Permission.INGEST_EVENTS)
-        found(store.orders, order_id, "order")
+        found(crm.store.orders, order_id, "order")
         crm.return_order(order_id, now=clock())
 
     @app.post("/orders/{order_id}/cancel", status_code=204, tags=["orders"])
-    async def cancel_order(order_id: str, role: RoleDep) -> None:
+    @tx
+    def cancel_order(crm: CRMEngine, order_id: str, role: RoleDep) -> None:
         require(role, Permission.INGEST_EVENTS)
-        found(store.orders, order_id, "order")
+        found(crm.store.orders, order_id, "order")
         crm.cancel_order(order_id, now=clock())
 
     @app.post("/orders/{order_id}/refunds", tags=["support"])
-    async def request_refund(order_id: str, body: RefundIn, role: RoleDep) -> dict[str, Any]:
+    @tx
+    def request_refund(crm: CRMEngine, order_id: str, body: RefundIn, role: RoleDep) -> dict[str, Any]:
         require(role, Permission.REQUEST_REFUNDS)
-        found(store.orders, order_id, "order")
+        found(crm.store.orders, order_id, "order")
         return crm.customers.request_refund(order_id, body.amount, clock())
 
     # --- Support -------------------------------------------------------------------
 
     @app.post("/tickets", status_code=201, tags=["support"])
-    async def submit_ticket(body: TicketIn, role: RoleDep) -> dict[str, Any]:
+    @tx
+    def submit_ticket(crm: CRMEngine, body: TicketIn, role: RoleDep) -> dict[str, Any]:
         require(role, Permission.SUBMIT_TICKETS)
-        absent(store.tickets, body.ticket_id, "ticket")
-        found(store.customers, body.customer_id, "customer")
+        absent(crm.store.tickets, body.ticket_id, "ticket")
+        found(crm.store.customers, body.customer_id, "customer")
         if body.order_id:
-            order = found(store.orders, body.order_id, "order")
+            order = found(crm.store.orders, body.order_id, "order")
             if order.customer_id != body.customer_id:
                 raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "order does not belong to this customer")
         now = clock()
@@ -321,124 +362,142 @@ def create_app(
                             "assigned_team": ticket.assigned_team})
 
     @app.get("/tickets", tags=["support"])
-    async def support_queue(role: RoleDep) -> list[dict[str, Any]]:
+    @tx
+    def support_queue(crm: CRMEngine, role: RoleDep) -> list[dict[str, Any]]:
         return crm.support_queue(role)
 
     # --- Vendors ---------------------------------------------------------------------
 
     @app.post("/vendors", status_code=201, tags=["vendors"])
-    async def onboard_vendor(body: VendorIn, role: RoleDep) -> dict[str, Any]:
+    @tx
+    def onboard_vendor(crm: CRMEngine, body: VendorIn, role: RoleDep) -> dict[str, Any]:
         require(role, Permission.MANAGE_VENDOR_ONBOARDING)
-        absent(store.vendors, body.vendor_id, "vendor")
+        absent(crm.store.vendors, body.vendor_id, "vendor")
         crm.vendors.onboard(Vendor(body.vendor_id, body.store_name, body.contact_email, body.commission_rate))
         return crm.vendor_scorecard(role, body.vendor_id)
 
     @app.get("/vendors/payouts", tags=["finance"])
-    async def vendor_payouts(role: RoleDep) -> list[dict[str, Any]]:
+    @tx
+    def vendor_payouts(crm: CRMEngine, role: RoleDep) -> list[dict[str, Any]]:
         return crm.vendor_payout_report(role, clock())
 
     @app.get("/vendors/{vendor_id}", tags=["vendors"])
-    async def vendor_scorecard(vendor_id: str, role: RoleDep) -> dict[str, Any]:
+    @tx
+    def vendor_scorecard(crm: CRMEngine, vendor_id: str, role: RoleDep) -> dict[str, Any]:
         require(role, Permission.VIEW_VENDOR_PROFILE)
-        found(store.vendors, vendor_id, "vendor")
+        found(crm.store.vendors, vendor_id, "vendor")
         return crm.vendor_scorecard(role, vendor_id)
 
     @app.put("/vendors/{vendor_id}/documents/{doc_type}", status_code=204, tags=["vendors"])
-    async def submit_document(vendor_id: str, doc_type: str, role: RoleDep) -> None:
+    @tx
+    def submit_document(crm: CRMEngine, vendor_id: str, doc_type: str, role: RoleDep) -> None:
         require(role, Permission.MANAGE_VENDOR_ONBOARDING)
-        found(store.vendors, vendor_id, "vendor")
+        found(crm.store.vendors, vendor_id, "vendor")
         crm.vendors.submit_document(vendor_id, doc_type)
 
     @app.post("/vendors/{vendor_id}/documents/{doc_type}/review", status_code=204, tags=["vendors"])
-    async def review_document(vendor_id: str, doc_type: str, body: DocumentReviewIn, role: RoleDep) -> None:
+    @tx
+    def review_document(crm: CRMEngine, vendor_id: str, doc_type: str, body: DocumentReviewIn, role: RoleDep) -> None:
         require(role, Permission.MANAGE_VENDOR_ONBOARDING)
-        found(store.vendors, vendor_id, "vendor")
+        found(crm.store.vendors, vendor_id, "vendor")
         crm.vendors.review_document(vendor_id, doc_type, body.approved)
 
     @app.put("/vendors/{vendor_id}/milestones/{milestone}", status_code=204, tags=["vendors"])
-    async def complete_milestone(vendor_id: str, milestone: str, role: RoleDep) -> None:
+    @tx
+    def complete_milestone(crm: CRMEngine, vendor_id: str, milestone: str, role: RoleDep) -> None:
         require(role, Permission.MANAGE_VENDOR_ONBOARDING)
-        found(store.vendors, vendor_id, "vendor")
+        found(crm.store.vendors, vendor_id, "vendor")
         crm.vendors.complete_milestone(vendor_id, milestone, clock())
 
     @app.post("/vendors/{vendor_id}/reviews", status_code=204, tags=["vendors"])
-    async def add_review(vendor_id: str, body: ReviewIn, role: RoleDep) -> None:
+    @tx
+    def add_review(crm: CRMEngine, vendor_id: str, body: ReviewIn, role: RoleDep) -> None:
         require(role, Permission.INGEST_EVENTS)
-        found(store.vendors, vendor_id, "vendor")
+        found(crm.store.vendors, vendor_id, "vendor")
         crm.vendors.add_review(vendor_id, body.score, clock())
 
     @app.get("/vendors/{vendor_id}/ledger", tags=["finance"])
-    async def vendor_ledger(vendor_id: str, role: RoleDep) -> dict[str, Any]:
+    @tx
+    def vendor_ledger(crm: CRMEngine, vendor_id: str, role: RoleDep) -> dict[str, Any]:
         require(role, Permission.VIEW_VENDOR_LEDGER)
-        found(store.vendors, vendor_id, "vendor")
+        found(crm.store.vendors, vendor_id, "vendor")
         return to_jsonable(crm.vendors.ledger_summary(vendor_id, clock()))
 
     @app.post("/vendors/{vendor_id}/payouts", tags=["finance"])
-    async def run_payout(vendor_id: str, role: RoleDep) -> dict[str, Any]:
+    @tx
+    def run_payout(crm: CRMEngine, vendor_id: str, role: RoleDep) -> dict[str, Any]:
         require(role, Permission.RUN_PAYOUTS)
-        found(store.vendors, vendor_id, "vendor")
+        found(crm.store.vendors, vendor_id, "vendor")
         return to_jsonable(crm.vendors.run_payout(vendor_id, clock()))
 
     # --- Affiliates ----------------------------------------------------------------------
 
-    def affiliate_tier(affiliate_id: str) -> str:
+    def affiliate_tier(crm: CRMEngine, affiliate_id: str) -> str:
         now = clock()
         return crm.affiliates.commission_statement(affiliate_id, datetime.min, datetime.max, now)["tier"]
 
     @app.post("/affiliates", status_code=201, tags=["affiliates"])
-    async def register_affiliate(body: AffiliateIn, role: RoleDep) -> dict[str, Any]:
+    @tx
+    def register_affiliate(crm: CRMEngine, body: AffiliateIn, role: RoleDep) -> dict[str, Any]:
         require(role, Permission.MANAGE_AFFILIATES)
-        absent(store.affiliates, body.affiliate_id, "affiliate")
+        absent(crm.store.affiliates, body.affiliate_id, "affiliate")
         crm.affiliates.register(Affiliate(body.affiliate_id, body.name, body.email, body.referral_code))
         return {"affiliate_id": body.affiliate_id, "approved": False}
 
     @app.get("/affiliates/payouts", tags=["finance"])
-    async def affiliate_payouts(role: RoleDep, start: datetime | None = None,
+    @tx
+    def affiliate_payouts(crm: CRMEngine, role: RoleDep, start: datetime | None = None,
                                 end: datetime | None = None) -> list[dict[str, Any]]:
         return crm.affiliate_payout_report(role, *period(start, end), clock())
 
     @app.get("/affiliates/{affiliate_id}", tags=["affiliates"])
-    async def get_affiliate(affiliate_id: str, role: RoleDep) -> dict[str, Any]:
+    @tx
+    def get_affiliate(crm: CRMEngine, affiliate_id: str, role: RoleDep) -> dict[str, Any]:
         require(role, Permission.VIEW_AFFILIATES)
-        a = found(store.affiliates, affiliate_id, "affiliate")
+        a = found(crm.store.affiliates, affiliate_id, "affiliate")
         record = {"affiliate_id": a.affiliate_id, "name": a.name, "email": a.email,
                   "referral_code": a.referral_code, "approved": a.approved,
-                  "tier": affiliate_tier(affiliate_id), "assets": list(a.assets)}
+                  "tier": affiliate_tier(crm, affiliate_id), "assets": list(a.assets)}
         return record if has_permission(role, Permission.MANAGE_AFFILIATES) else mask_pii(record)
 
     @app.post("/affiliates/{affiliate_id}/approve", status_code=204, tags=["affiliates"])
-    async def approve_affiliate(affiliate_id: str, role: RoleDep) -> None:
+    @tx
+    def approve_affiliate(crm: CRMEngine, affiliate_id: str, role: RoleDep) -> None:
         require(role, Permission.MANAGE_AFFILIATES)
-        found(store.affiliates, affiliate_id, "affiliate")
+        found(crm.store.affiliates, affiliate_id, "affiliate")
         crm.affiliates.approve(affiliate_id)
 
     @app.get("/affiliates/{affiliate_id}/commission", tags=["finance"])
-    async def affiliate_commission(affiliate_id: str, role: RoleDep, start: datetime | None = None,
+    @tx
+    def affiliate_commission(crm: CRMEngine, affiliate_id: str, role: RoleDep, start: datetime | None = None,
                                    end: datetime | None = None) -> dict[str, Any]:
         require(role, Permission.VIEW_AFFILIATE_PAYOUTS)
-        found(store.affiliates, affiliate_id, "affiliate")
+        found(crm.store.affiliates, affiliate_id, "affiliate")
         return to_jsonable(crm.affiliates.commission_statement(affiliate_id, *period(start, end), clock()))
 
     @app.post("/referrals/clicks", tags=["affiliates"])
-    async def track_click(body: ClickIn, role: RoleDep) -> dict[str, Any]:
+    @tx
+    def track_click(crm: CRMEngine, body: ClickIn, role: RoleDep) -> dict[str, Any]:
         require(role, Permission.INGEST_EVENTS)
         return crm.affiliates.track_click(body.referral_code, body.product_id, body.visitor_fingerprint, clock())
 
     @app.post("/affiliate-assets", status_code=201, tags=["affiliates"])
-    async def add_asset(body: AssetIn, role: RoleDep) -> dict[str, Any]:
+    @tx
+    def add_asset(crm: CRMEngine, body: AssetIn, role: RoleDep) -> dict[str, Any]:
         require(role, Permission.MANAGE_AFFILIATES)
-        absent(store.assets, body.asset_id, "asset")
+        absent(crm.store.assets, body.asset_id, "asset")
         crm.affiliates.add_asset(MarketingAsset(body.asset_id, body.kind, body.title, body.payload,
                                                 body.restricted_to_tier))
         return {"asset_id": body.asset_id}
 
     @app.post("/affiliates/{affiliate_id}/assets/{asset_id}", tags=["affiliates"])
-    async def distribute_asset(affiliate_id: str, asset_id: str, role: RoleDep) -> dict[str, Any]:
+    @tx
+    def distribute_asset(crm: CRMEngine, affiliate_id: str, asset_id: str, role: RoleDep) -> dict[str, Any]:
         require(role, Permission.DISTRIBUTE_ASSETS)
-        found(store.affiliates, affiliate_id, "affiliate")
-        found(store.assets, asset_id, "asset")
+        found(crm.store.affiliates, affiliate_id, "affiliate")
+        found(crm.store.assets, asset_id, "asset")
         # Tier is derived from completed orders, never supplied by the caller.
-        result = crm.affiliates.distribute_asset(affiliate_id, asset_id, affiliate_tier(affiliate_id))
+        result = crm.affiliates.distribute_asset(affiliate_id, asset_id, affiliate_tier(crm, affiliate_id))
         if not result["distributed"]:
             raise HTTPException(status.HTTP_409_CONFLICT, result["reason"])
         return result
@@ -446,29 +505,36 @@ def create_app(
     # --- Internal tasks & analytics --------------------------------------------------------
 
     @app.get("/tasks", tags=["internal"])
-    async def task_queue(team: str, role: RoleDep) -> list[dict[str, Any]]:
+    @tx
+    def task_queue(crm: CRMEngine, team: str, role: RoleDep) -> list[dict[str, Any]]:
         return crm.task_queue(role, team)
 
     @app.post("/tasks/{task_id}/resolve", tags=["internal"])
-    async def resolve_task(task_id: str, role: RoleDep) -> dict[str, Any]:
+    @tx
+    def resolve_task(crm: CRMEngine, task_id: str, role: RoleDep) -> dict[str, Any]:
         require(role, Permission.RESOLVE_TASKS)
         task = found(crm.escalations.tasks, task_id, "task")
         require_team(role, task.owner_team)
         return to_jsonable(crm.escalations.resolve(task_id))
 
     @app.get("/analytics", tags=["internal"])
-    async def analytics(role: RoleDep) -> dict[str, Any]:
+    @tx
+    def analytics(crm: CRMEngine, role: RoleDep) -> dict[str, Any]:
         return crm.global_analytics(role, clock())
 
     return app
 
 
 def _default_app() -> FastAPI:
-    engine = None
+    backend = backend_from_env()
     if os.environ.get("SABAR_CRM_SEED_DEMO") == "1":
         from .__main__ import seed
-        engine = seed(utc_now())
-    return create_app(engine)
+        if isinstance(backend, MemoryBackend):
+            seed(utc_now(), backend.engine)
+        elif backend.is_empty():
+            with backend.session() as crm:
+                seed(utc_now(), crm)
+    return create_app(backend=backend)
 
 
 app = _default_app()

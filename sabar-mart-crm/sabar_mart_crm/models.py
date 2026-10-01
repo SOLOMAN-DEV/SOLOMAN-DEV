@@ -172,6 +172,14 @@ class MarketingAsset:
     restricted_to_tier: str | None = None
 
 
+@dataclass
+class Attribution:
+    order_id: str
+    affiliate_id: str
+    click_id: str
+    amount: Decimal
+
+
 # --- Internal workflow ---------------------------------------------------
 
 class TaskStatus(str, Enum):

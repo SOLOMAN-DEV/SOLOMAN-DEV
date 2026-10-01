@@ -18,8 +18,8 @@ from .rbac import Role
 from .store import Product
 
 
-def seed(now: datetime) -> CRMEngine:
-    crm = CRMEngine()
+def seed(now: datetime, crm: CRMEngine | None = None) -> CRMEngine:
+    crm = crm or CRMEngine()
     t0 = now - timedelta(days=40)
 
     for vid, name, docs_ok in (("V-100", "Kiran Textiles", True), ("V-200", "QuickGadgets", True)):

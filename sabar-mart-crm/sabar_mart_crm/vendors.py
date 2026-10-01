@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 from decimal import Decimal
-from itertools import count
 from typing import Any
 
 from . import config
@@ -23,7 +22,6 @@ class VendorManager:
     def __init__(self, store: Store, escalations: EscalationEngine) -> None:
         self.store = store
         self.escalations = escalations
-        self._ledger_seq = count(1)
 
     # --- Onboarding & compliance ----------------------------------------------
 
@@ -145,8 +143,8 @@ class VendorManager:
     # --- Financial ledger -----------------------------------------------------
 
     def _post(self, vendor_id: str, kind: str, amount: Decimal, now: datetime, reference: str) -> LedgerEntry:
-        entry = LedgerEntry(f"LED-{next(self._ledger_seq):06d}", vendor_id, kind, money(amount), now, reference)
-        self.store.ledger.append(entry)
+        entry = LedgerEntry(f"LED-{self.store.next_id('ledger'):06d}", vendor_id, kind, money(amount), now, reference)
+        self.store.ledger[entry.entry_id] = entry
         return entry
 
     def record_sale(self, order: Order, now: datetime) -> None:
@@ -161,7 +159,7 @@ class VendorManager:
         self._post(order.vendor_id, "commission_reversal", order.amount * vendor.commission_rate, now, order.order_id)
 
     def _entries(self, vendor_id: str) -> list[LedgerEntry]:
-        return [e for e in self.store.ledger if e.vendor_id == vendor_id]
+        return self.store.find("ledger", vendor_id=vendor_id)
 
     def _held_amount(self, vendor_id: str, now: datetime) -> Decimal:
         """Net proceeds of delivered orders still inside the return window."""

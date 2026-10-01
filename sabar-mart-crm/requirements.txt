@@ -1,0 +1,8 @@
+# Runtime dependencies for hosting (MilesWeb cPanel "Setup Python App" -> Run Pip Install, or pip install -r).
+fastapi>=0.110,<1.0
+a2wsgi>=1.10
+SQLAlchemy>=2.0,<3.0
+PyMySQL>=1.1
+# For a VPS running uvicorn/gunicorn instead of Passenger:
+# uvicorn[standard]>=0.27
+# gunicorn>=21
