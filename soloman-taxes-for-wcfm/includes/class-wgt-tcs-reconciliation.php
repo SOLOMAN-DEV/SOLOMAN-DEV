@@ -88,6 +88,7 @@ class WGT_TCS_Reconciliation {
 			<?php wp_nonce_field( 'wgt_export_tcs_reconciliation' ); ?>
 			<?php submit_button( __( 'Export Full Result (CSV)', 'wcfm-gst-tcs' ), 'secondary', '', false ); ?>
 		</form>
+		<div class="wgt-table-scroll">
 		<table class="widefat striped">
 			<thead>
 				<tr>
@@ -114,6 +115,7 @@ class WGT_TCS_Reconciliation {
 				<?php endforeach; ?>
 			</tbody>
 		</table>
+		</div>
 		<?php if ( count( $result['rows'] ) > 100 ) : ?>
 			<p class="description">
 				<?php

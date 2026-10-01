@@ -6,7 +6,7 @@ Tested up to: 6.7
 Requires PHP: 7.4
 WC requires at least: 6.0
 WC tested up to: 9.5
-Stable tag: 2.1.0
+Stable tag: 2.2.0
 License: GPLv2 or later
 
 Adds India GST (CGST/SGST/IGST) tax calculation and GST-TCS (Section 52, CGST Act) compliance
@@ -166,6 +166,21 @@ to a WCFM Marketplace multivendor store.
   include PHPUnit.
 
 == Changelog ==
+
+= 2.2.0 =
+* Made every screen this plugin renders responsive on narrow/mobile screens: wide data tables
+  (GST report, TCS report, B2B/B2C breakdowns, HSN & Rate Summary, TCS Reconciliation, the
+  vendor dashboard, delivery/affiliate commission reports) now scroll horizontally within their
+  own box on a narrow screen instead of breaking the page layout; label:value tables (Sales
+  Summary, GST-TCS Deducted) stack into readable blocks instead of cramming two columns into a
+  phone-width row; filter forms and button rows wrap and, below 600px, stack to full width for
+  easier tapping.
+* The printable/emailed GST invoice (a standalone HTML document, not inside wp-admin or the
+  site theme) was missing a viewport meta tag entirely — on a phone it was rendering at desktop
+  width and shrinking to fit, forcing pinch-zoom to read anything. Fixed with a proper viewport
+  meta tag plus a mobile-only font-size/padding/margin adjustment and a horizontal-scroll
+  wrapper for the line-item table. Scoped so none of this affects the PDF output (the PDF
+  renderer never matches the mobile media query, and gets no viewport meta tag at all).
 
 = 2.1.0 =
 * Renamed the plugin folder and main file to match the new brand: `wcfm-gst-tcs-marketplace/`

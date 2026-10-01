@@ -1,5 +1,6 @@
-.wgt-admin-wrap .wgt-filter-form { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin: 12px 0; }
-.wgt-admin-wrap .wgt-filter-form label { display: flex; gap: 6px; align-items: center; }
+.wgt-filter-form { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin: 12px 0; }
+.wgt-filter-form label { display: flex; gap: 6px; align-items: center; flex: 1 1 auto; min-width: 150px; }
+.wgt-filter-form input { flex: 1 1 auto; min-width: 0; }
 
 .wgt-gstin-input.wgt-valid { border-color: #46b450; }
 .wgt-gstin-input.wgt-invalid { border-color: #dc3232; }
@@ -10,4 +11,51 @@
 
 .wgt-vendor-gst-table th, .wgt-vendor-gst-table td { padding: 6px 10px; }
 
-.wgt-vendor-report .shop_table th { text-align: left; width: 220px; }
+/* Wide data tables (many columns, e.g. HSN summary, B2B/B2C breakdown): scroll horizontally
+   within their own box on a narrow screen instead of blowing out the page width. */
+.wgt-table-scroll { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; margin-bottom: 1em; }
+.wgt-table-scroll > table { margin-bottom: 0; }
+
+/* Label:value tables (Sales Summary, GST-TCS Deducted): two columns, so a horizontal scroll
+   would be silly — stack each row into a labeled block instead once the screen is narrow. */
+.wgt-vendor-report .shop_table.wgt-kv-table th { width: 220px; }
+
+/* Button-row forms rendered as consecutive siblings (export/download buttons sitting side by
+   side). Replaces the old display:inline-block + margin-right inline styles so the row can
+   wrap and, below the mobile breakpoint, stack to full width for easier tapping. */
+.wgt-inline-form { display: inline-flex; vertical-align: top; margin: 0 10px 10px 0; }
+.wgt-inline-form:last-child { margin-right: 0; }
+
+@media screen and (max-width: 600px) {
+	.wgt-filter-form label { min-width: 100%; }
+	.wgt-filter-form .button,
+	.wgt-filter-form input[type="submit"] { width: 100%; }
+
+	.wgt-inline-form { display: block; width: 100%; margin: 0 0 10px; }
+	.wgt-inline-form .button,
+	.wgt-inline-form input[type="submit"] { width: 100%; }
+
+	.wgt-vendor-report .shop_table.wgt-kv-table,
+	.wgt-vendor-report .shop_table.wgt-kv-table tbody,
+	.wgt-vendor-report .shop_table.wgt-kv-table tr,
+	.wgt-vendor-report .shop_table.wgt-kv-table th,
+	.wgt-vendor-report .shop_table.wgt-kv-table td {
+		display: block;
+		width: 100% !important;
+		box-sizing: border-box;
+	}
+	.wgt-vendor-report .shop_table.wgt-kv-table tr { margin-bottom: 8px; }
+	.wgt-vendor-report .shop_table.wgt-kv-table td { padding-top: 0; }
+}
+
+/* Native date/number/text inputs this plugin renders should never force a page wider than its
+   viewport — some browsers give them a default width that overflows a narrow phone screen. */
+.wgt-admin-wrap input[type="date"],
+.wgt-admin-wrap input[type="number"],
+.wgt-admin-wrap input[type="text"],
+.wgt-admin-wrap select,
+.wgt-vendor-report input[type="date"],
+.wgt-vendor-report input[type="number"] {
+	max-width: 100%;
+	box-sizing: border-box;
+}

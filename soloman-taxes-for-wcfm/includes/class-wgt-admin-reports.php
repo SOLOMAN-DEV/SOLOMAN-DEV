@@ -400,6 +400,7 @@ class WGT_Admin_Reports {
 				<?php submit_button( __( 'Export CSV', 'wcfm-gst-tcs' ), 'primary', '', false ); ?>
 			</form>
 
+			<div class="wgt-table-scroll">
 			<table class="widefat striped">
 				<thead>
 					<tr>
@@ -430,12 +431,13 @@ class WGT_Admin_Reports {
 					<?php endif; ?>
 				</tbody>
 			</table>
+			</div>
 
 			<h2><?php esc_html_e( 'B2B / B2C Breakdown', 'wcfm-gst-tcs' ); ?></h2>
 			<p class="description"><?php esc_html_e( 'GSTR-1 reports B2B (registered buyers) and B2C (unregistered/consumer) supplies separately. Each vendor files their own GSTR-1 using their own figures below.', 'wcfm-gst-tcs' ); ?></p>
 			<?php $this->render_b2b_b2c_table( $filters['date_from'], $filters['date_to'], $filters['vendor_id'] ); ?>
 
-			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="display:inline-block;margin-right:10px;">
+			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="wgt-inline-form">
 				<input type="hidden" name="action" value="wgt_export_gst_report" />
 				<input type="hidden" name="type" value="B2B" />
 				<?php wp_nonce_field( 'wgt_export_gst_report' ); ?>
@@ -444,7 +446,7 @@ class WGT_Admin_Reports {
 				<input type="hidden" name="vendor_id" value="<?php echo esc_attr( $filters['vendor_id'] ); ?>" />
 				<?php submit_button( __( 'Export B2B Summary (CSV)', 'wcfm-gst-tcs' ), 'secondary', '', false ); ?>
 			</form>
-			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="display:inline-block;">
+			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="wgt-inline-form">
 				<input type="hidden" name="action" value="wgt_export_gst_report" />
 				<input type="hidden" name="type" value="B2C" />
 				<?php wp_nonce_field( 'wgt_export_gst_report' ); ?>
@@ -460,6 +462,7 @@ class WGT_Admin_Reports {
 	private function render_b2b_b2c_table( $date_from, $date_to, $vendor_id ) {
 		$rows = self::gather_gst_report_by_type( $date_from, $date_to, $vendor_id );
 		?>
+		<div class="wgt-table-scroll">
 		<table class="widefat striped">
 			<thead>
 				<tr>
@@ -497,6 +500,7 @@ class WGT_Admin_Reports {
 				<?php endif; ?>
 			</tbody>
 		</table>
+		</div>
 		<?php
 	}
 
@@ -626,6 +630,7 @@ class WGT_Admin_Reports {
 				<?php submit_button( __( 'Export CSV', 'wcfm-gst-tcs' ), 'primary', '', false ); ?>
 			</form>
 
+			<div class="wgt-table-scroll">
 			<table class="widefat striped">
 				<thead>
 					<tr>
@@ -659,12 +664,13 @@ class WGT_Admin_Reports {
 					<?php endif; ?>
 				</tbody>
 			</table>
+			</div>
 
 			<h2><?php esc_html_e( 'B2B / B2C Breakdown', 'wcfm-gst-tcs' ); ?></h2>
 			<p class="description"><?php esc_html_e( 'GSTR-8 itself does not require TCS to be split by B2B/B2C — it is filed per vendor only. This breakdown is provided for your own reconciliation against each vendor\'s GSTR-1 filing.', 'wcfm-gst-tcs' ); ?></p>
 			<?php $this->render_tcs_b2b_b2c_table( $by_vendor_type ); ?>
 
-			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="display:inline-block;margin-right:10px;">
+			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="wgt-inline-form">
 				<input type="hidden" name="action" value="wgt_export_tcs_report" />
 				<input type="hidden" name="type" value="B2B" />
 				<?php wp_nonce_field( 'wgt_export_tcs_report' ); ?>
@@ -673,7 +679,7 @@ class WGT_Admin_Reports {
 				<input type="hidden" name="vendor_id" value="<?php echo esc_attr( $filters['vendor_id'] ); ?>" />
 				<?php submit_button( __( 'Export TCS B2B Only (CSV)', 'wcfm-gst-tcs' ), 'secondary', '', false ); ?>
 			</form>
-			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="display:inline-block;">
+			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="wgt-inline-form">
 				<input type="hidden" name="action" value="wgt_export_tcs_report" />
 				<input type="hidden" name="type" value="B2C" />
 				<?php wp_nonce_field( 'wgt_export_tcs_report' ); ?>
@@ -688,6 +694,7 @@ class WGT_Admin_Reports {
 
 	private function render_tcs_b2b_b2c_table( $by_vendor_type ) {
 		?>
+		<div class="wgt-table-scroll">
 		<table class="widefat striped">
 			<thead>
 				<tr>
@@ -725,6 +732,7 @@ class WGT_Admin_Reports {
 				<?php endif; ?>
 			</tbody>
 		</table>
+		</div>
 		<?php
 	}
 
@@ -924,7 +932,7 @@ class WGT_Admin_Reports {
 
 			<h2><?php esc_html_e( 'B2B / B2C Split', 'wcfm-gst-tcs' ); ?></h2>
 			<p class="description"><?php esc_html_e( 'GSTR-1 reports B2B (registered buyers) and B2C (unregistered/consumer) supplies separately. These export just one or the other, using the same date range and vendor filter as above.', 'wcfm-gst-tcs' ); ?></p>
-			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="display:inline-block;margin-right:10px;">
+			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="wgt-inline-form">
 				<input type="hidden" name="action" value="wgt_export_gstr1" />
 				<input type="hidden" name="type" value="B2B" />
 				<?php wp_nonce_field( 'wgt_export_gstr1' ); ?>
@@ -933,7 +941,7 @@ class WGT_Admin_Reports {
 				<input type="hidden" name="vendor_id" value="<?php echo esc_attr( $filters['vendor_id'] ); ?>" />
 				<?php submit_button( __( 'Export B2B Only (CSV)', 'wcfm-gst-tcs' ), 'secondary', '', false ); ?>
 			</form>
-			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="display:inline-block;">
+			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="wgt-inline-form">
 				<input type="hidden" name="action" value="wgt_export_gstr1" />
 				<input type="hidden" name="type" value="B2C" />
 				<?php wp_nonce_field( 'wgt_export_gstr1' ); ?>
@@ -1056,6 +1064,7 @@ class WGT_Admin_Reports {
 				<input type="hidden" name="vendor_id" value="<?php echo esc_attr( $filters['vendor_id'] ); ?>" />
 				<?php submit_button( __( 'Export HSN Summary (CSV)', 'wcfm-gst-tcs' ), 'primary', '', false ); ?>
 			</form>
+			<div class="wgt-table-scroll">
 			<table class="widefat striped">
 				<thead>
 					<tr>
@@ -1079,6 +1088,7 @@ class WGT_Admin_Reports {
 					<?php endif; ?>
 				</tbody>
 			</table>
+			</div>
 
 			<h2><?php esc_html_e( 'Rate-wise Summary (GSTR-3B Table 3.1)', 'wcfm-gst-tcs' ); ?></h2>
 			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="margin:10px 0;">
@@ -1090,6 +1100,7 @@ class WGT_Admin_Reports {
 				<input type="hidden" name="vendor_id" value="<?php echo esc_attr( $filters['vendor_id'] ); ?>" />
 				<?php submit_button( __( 'Export Rate Summary (CSV)', 'wcfm-gst-tcs' ), 'primary', '', false ); ?>
 			</form>
+			<div class="wgt-table-scroll">
 			<table class="widefat striped">
 				<thead>
 					<tr>
@@ -1113,6 +1124,7 @@ class WGT_Admin_Reports {
 					<?php endif; ?>
 				</tbody>
 			</table>
+			</div>
 		</div>
 		<?php
 	}

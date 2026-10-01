@@ -223,7 +223,7 @@ class WGT_Vendor_Dashboard {
 				</p>
 			<?php endif; ?>
 
-			<form method="get">
+			<form method="get" class="wgt-filter-form">
 				<label><?php esc_html_e( 'From', 'wcfm-gst-tcs' ); ?> <input type="date" name="wgt_date_from" value="<?php echo esc_attr( $date_from ); ?>" /></label>
 				<label><?php esc_html_e( 'To', 'wcfm-gst-tcs' ); ?> <input type="date" name="wgt_date_to" value="<?php echo esc_attr( $date_to ); ?>" /></label>
 				<button type="submit"><?php esc_html_e( 'Filter', 'wcfm-gst-tcs' ); ?></button>
@@ -231,7 +231,7 @@ class WGT_Vendor_Dashboard {
 			</form>
 
 			<h3><?php esc_html_e( 'Sales Summary', 'wcfm-gst-tcs' ); ?></h3>
-			<table class="shop_table">
+			<table class="shop_table wgt-kv-table">
 				<tbody>
 					<tr><th><?php esc_html_e( 'Orders', 'wcfm-gst-tcs' ); ?></th><td><?php echo esc_html( $sales['order_count'] ); ?></td></tr>
 					<tr><th><?php esc_html_e( 'Net Taxable Value', 'wcfm-gst-tcs' ); ?></th><td><?php echo wp_kses_post( wc_price( $sales['net'] ) ); ?></td></tr>
@@ -244,6 +244,7 @@ class WGT_Vendor_Dashboard {
 
 			<h3><?php esc_html_e( 'B2B / B2C Breakdown', 'wcfm-gst-tcs' ); ?></h3>
 			<p class="description"><?php esc_html_e( 'GSTR-1 reports B2B (registered buyers) and B2C (unregistered/consumer) supplies separately — use these figures for your own filing.', 'wcfm-gst-tcs' ); ?></p>
+			<div class="wgt-table-scroll">
 			<table class="shop_table">
 				<thead>
 					<tr>
@@ -271,10 +272,11 @@ class WGT_Vendor_Dashboard {
 					<?php endforeach; ?>
 				</tbody>
 			</table>
+			</div>
 
 			<?php if ( $tcs_enabled ) : ?>
 				<h3><?php esc_html_e( 'GST-TCS Deducted', 'wcfm-gst-tcs' ); ?></h3>
-				<table class="shop_table">
+				<table class="shop_table wgt-kv-table">
 					<tbody>
 						<tr><th><?php esc_html_e( 'CGST TCS', 'wcfm-gst-tcs' ); ?></th><td><?php echo wp_kses_post( wc_price( $tcs_summary['cgst_tcs'] ) ); ?></td></tr>
 						<tr><th><?php esc_html_e( 'SGST TCS', 'wcfm-gst-tcs' ); ?></th><td><?php echo wp_kses_post( wc_price( $tcs_summary['sgst_tcs'] ) ); ?></td></tr>
@@ -288,7 +290,7 @@ class WGT_Vendor_Dashboard {
 			<p class="description"><?php esc_html_e( 'Reports cover the date range selected above.', 'wcfm-gst-tcs' ); ?></p>
 
 			<?php if ( $tcs_enabled ) : ?>
-				<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="display:inline-block;margin-right:10px;">
+				<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="wgt-inline-form">
 					<input type="hidden" name="action" value="wgt_export_vendor_tcs" />
 					<input type="hidden" name="date_from" value="<?php echo esc_attr( $date_from ); ?>" />
 					<input type="hidden" name="date_to" value="<?php echo esc_attr( $date_to ); ?>" />
@@ -297,14 +299,14 @@ class WGT_Vendor_Dashboard {
 				</form>
 			<?php endif; ?>
 
-			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="display:inline-block;margin-right:10px;">
+			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="wgt-inline-form">
 				<input type="hidden" name="action" value="wgt_export_vendor_invoices" />
 				<input type="hidden" name="date_from" value="<?php echo esc_attr( $date_from ); ?>" />
 				<input type="hidden" name="date_to" value="<?php echo esc_attr( $date_to ); ?>" />
 				<?php wp_nonce_field( 'wgt_export_vendor_invoices' ); ?>
 				<button type="submit" class="button"><?php esc_html_e( 'Detailed Invoice Report — All (CSV)', 'wcfm-gst-tcs' ); ?></button>
 			</form>
-			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="display:inline-block;margin-right:10px;">
+			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="wgt-inline-form">
 				<input type="hidden" name="action" value="wgt_export_vendor_invoices" />
 				<input type="hidden" name="type" value="B2B" />
 				<input type="hidden" name="date_from" value="<?php echo esc_attr( $date_from ); ?>" />
@@ -312,7 +314,7 @@ class WGT_Vendor_Dashboard {
 				<?php wp_nonce_field( 'wgt_export_vendor_invoices' ); ?>
 				<button type="submit" class="button"><?php esc_html_e( 'B2B Only (CSV)', 'wcfm-gst-tcs' ); ?></button>
 			</form>
-			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="display:inline-block;">
+			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="wgt-inline-form">
 				<input type="hidden" name="action" value="wgt_export_vendor_invoices" />
 				<input type="hidden" name="type" value="B2C" />
 				<input type="hidden" name="date_from" value="<?php echo esc_attr( $date_from ); ?>" />
@@ -322,7 +324,7 @@ class WGT_Vendor_Dashboard {
 			</form>
 			<p class="description"><?php esc_html_e( 'The detailed report lists every order line item with full order details — customer, addresses, payment method, product, quantity, pricing, HSN/SAC code, taxable value, CGST/SGST/IGST and buyer details for business purchases — for your own bookkeeping, your accountant, or filing GSTR-1 (B2B and B2C are reported separately).', 'wcfm-gst-tcs' ); ?></p>
 
-			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="display:inline-block;margin-right:10px;">
+			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="wgt-inline-form">
 				<input type="hidden" name="action" value="wgt_export_vendor_hsn_rate" />
 				<input type="hidden" name="kind" value="hsn" />
 				<input type="hidden" name="date_from" value="<?php echo esc_attr( $date_from ); ?>" />
@@ -330,7 +332,7 @@ class WGT_Vendor_Dashboard {
 				<?php wp_nonce_field( 'wgt_export_vendor_hsn_rate' ); ?>
 				<button type="submit" class="button"><?php esc_html_e( 'HSN Summary — GSTR-1 Table 12 (CSV)', 'wcfm-gst-tcs' ); ?></button>
 			</form>
-			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="display:inline-block;">
+			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="wgt-inline-form">
 				<input type="hidden" name="action" value="wgt_export_vendor_hsn_rate" />
 				<input type="hidden" name="kind" value="rate" />
 				<input type="hidden" name="date_from" value="<?php echo esc_attr( $date_from ); ?>" />

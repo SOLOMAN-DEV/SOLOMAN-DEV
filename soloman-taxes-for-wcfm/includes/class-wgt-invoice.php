@@ -117,7 +117,7 @@ class WGT_Invoice {
 		}
 
 		echo '<h2>' . esc_html__( 'Seller GST Details', 'wcfm-gst-tcs' ) . '</h2>';
-		echo '<table class="shop_table wgt-vendor-gst-table"><thead><tr><th>' . esc_html__( 'Seller', 'wcfm-gst-tcs' ) . '</th><th>' . esc_html__( 'GSTIN', 'wcfm-gst-tcs' ) . '</th><th>' . esc_html__( 'State', 'wcfm-gst-tcs' ) . '</th></tr></thead><tbody>';
+		echo '<div class="wgt-table-scroll"><table class="shop_table wgt-vendor-gst-table"><thead><tr><th>' . esc_html__( 'Seller', 'wcfm-gst-tcs' ) . '</th><th>' . esc_html__( 'GSTIN', 'wcfm-gst-tcs' ) . '</th><th>' . esc_html__( 'State', 'wcfm-gst-tcs' ) . '</th></tr></thead><tbody>';
 
 		foreach ( $vendor_ids as $vendor_id ) {
 			$gst    = WGT_Vendor_Settings::get_vendor_gst( $vendor_id );
@@ -131,7 +131,7 @@ class WGT_Invoice {
 			echo '</tr>';
 		}
 
-		echo '</tbody></table>';
+		echo '</tbody></table></div>';
 	}
 
 	public function render_invoice_link( $order ) {
@@ -271,6 +271,9 @@ class WGT_Invoice {
 		<html>
 		<head>
 			<meta charset="utf-8" />
+			<?php if ( ! $for_pdf ) : ?>
+				<meta name="viewport" content="width=device-width, initial-scale=1" />
+			<?php endif; ?>
 			<title><?php echo esc_html( sprintf( __( 'GST Invoice #%s', 'wcfm-gst-tcs' ), $order->get_order_number() ) ); ?></title>
 			<style>
 				body{font-family:Arial,Helvetica,sans-serif;color:#222;margin:2em;}
@@ -281,6 +284,16 @@ class WGT_Invoice {
 				.wgt-totals td{text-align:right;}
 				.wgt-print{margin-bottom:1em;}
 				@media print{.wgt-print{display:none;}}
+				/* Phones only — a PDF page is always wider than this, so dompdf never matches
+				   this block; it's purely for someone viewing the invoice link in a mobile
+				   browser (e.g. from the order-confirmation email). */
+				@media screen and (max-width:600px){
+					body{margin:1em .75em;font-size:14px;}
+					h1{font-size:1.2em;}
+					th,td{padding:4px 5px;font-size:.8em;}
+					.wgt-table-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch;}
+					.wgt-print button,.wgt-print a.button{display:inline-block;width:100%;box-sizing:border-box;margin-bottom:6px;text-align:center;padding:10px;}
+				}
 			</style>
 		</head>
 		<body>
@@ -332,6 +345,7 @@ class WGT_Invoice {
 					<?php endif; ?>
 				</p>
 
+				<div class="wgt-table-scroll">
 				<table>
 					<thead>
 						<tr>
@@ -365,6 +379,7 @@ class WGT_Invoice {
 						<tr><td colspan="5"><?php esc_html_e( 'Total GST', 'wcfm-gst-tcs' ); ?></td><td><?php echo wp_kses_post( wc_price( $t['gst'] ) ); ?></td></tr>
 					</tfoot>
 				</table>
+				</div>
 				<?php if ( $ei['qr'] ) : ?>
 					<p style="font-size:.75em;word-break:break-all;"><?php esc_html_e( 'E-Invoice QR:', 'wcfm-gst-tcs' ); ?> <code><?php echo esc_html( $ei['qr'] ); ?></code></p>
 				<?php endif; ?>

@@ -230,6 +230,7 @@ class WGT_Partner_Reports {
 				<?php submit_button( __( 'Export CSV', 'wcfm-gst-tcs' ), 'primary', '', false ); ?>
 			</form>
 
+			<div class="wgt-table-scroll">
 			<table class="widefat striped">
 				<thead>
 					<tr>
@@ -252,6 +253,7 @@ class WGT_Partner_Reports {
 					<?php endif; ?>
 				</tbody>
 			</table>
+			</div>
 		</div>
 		<?php
 	}
