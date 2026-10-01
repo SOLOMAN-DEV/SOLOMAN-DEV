@@ -56,7 +56,8 @@ class APITests(unittest.TestCase):
                 self.call("PUT", f"/vendors/{vid}/documents/{doc}", "k-vendor", 204)
                 self.call("POST", f"/vendors/{vid}/documents/{doc}/review", "k-vendor", 204, json={"approved": True})
         self.call("POST", "/products", "k-system", 201,
-                  json={"product_id": "P-1", "vendor_id": vid, "name": "Kurta", "category": "apparel"})
+                  json={"product_id": "P-1", "vendor_id": vid, "name": "Kurta", "category": "apparel",
+                        "gst_rate": "0.05"})
 
     def seed_customer(self, cid="C-1", email="asha@example.com"):
         self.call("POST", "/customers", "k-system", 201,
@@ -109,6 +110,8 @@ class APITests(unittest.TestCase):
         self.call("POST", "/orders", "k-system", 404,
                   json={"order_id": "O-1", "customer_id": "C-1", "product_id": "P-404", "amount": "5"})
         self.call("POST", "/vendors/V-1/reviews", "k-system", 422, json={"score": 7})
+        self.call("POST", "/products", "k-system", 422,  # GST rate is mandatory
+                  json={"product_id": "P-9", "vendor_id": "V-1", "name": "X", "category": "c"})
         self.call("PUT", "/vendors/V-1/documents/passport_selfie", "k-vendor", 409)
 
     def test_order_state_machine(self):
@@ -127,11 +130,11 @@ class APITests(unittest.TestCase):
         self.seed_customer()
         self.complete_order("O-1", "2000.00")
         ledger = self.call("GET", "/vendors/V-1/ledger", "k-finance")
-        self.assertEqual((ledger["payable_now"], ledger["held_in_return_window"]), ("0.00", "1752.00"))
+        self.assertEqual((ledger["payable_now"], ledger["held_in_return_window"]), ("0.00", "1752.58"))
         self.clock.advance(days=config.RETURN_WINDOW_DAYS + 1)
         self.call("POST", "/orders/O-1/return", "k-system", 409)  # window closed
         payout = self.call("POST", "/vendors/V-1/payouts", "k-finance")
-        self.assertEqual((payout["status"], payout["amount"]), ("paid", "1752.00"))
+        self.assertEqual((payout["status"], payout["amount"]), ("paid", "1752.58"))
         self.call("POST", "/vendors/V-1/payouts", "k-vendor", 403)
 
     def test_tickets_refunds_and_tasks(self):
@@ -239,7 +242,7 @@ class APITests(unittest.TestCase):
         history = self.call("GET", "/affiliates/A-1/payouts", "k-finance")
         self.assertEqual([(p["amount"], p["run_by"]) for p in history], [("30.00", "env-finance-4")])
         tax = self.call("GET", "/finance/tax-report", "k-finance")
-        self.assertEqual(tax["totals"]["tcs_collected"], "5.00")
+        self.assertEqual(tax["totals"]["tcs_collected"], "4.76")
 
     def test_refund_listing_and_validation(self):
         self.seed_vendor()
@@ -258,7 +261,7 @@ class APITests(unittest.TestCase):
         self.complete_order("O-1")
         data = self.call("GET", "/analytics", "k-admin")
         self.assertEqual(data["revenue"]["gmv_delivered_net_of_refunds"], "1000.00")
-        self.assertEqual(data["revenue"]["tcs_withheld"], "5.00")
+        self.assertEqual(data["revenue"]["tcs_withheld"], "4.76")  # 0.5% of 1000 / 1.05
         self.assertEqual(data["vendors"]["verified"], 1)
 
 

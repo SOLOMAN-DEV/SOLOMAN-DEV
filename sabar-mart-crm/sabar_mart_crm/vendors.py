@@ -157,12 +157,13 @@ class VendorManager:
         commission = money(order.amount * vendor.commission_rate)
         pan_verified = vendor.documents.get("pan_card") == DOC_APPROVED
         tds_rate = config.TDS_194O_RATE if pan_verified else config.TDS_194O_NO_PAN_RATE
+        taxable = order.taxable_value()
         for kind, amount in (
             ("sale", order.amount),
             ("commission", -commission),
             ("commission_gst", -(commission * config.GST_ON_COMMISSION_RATE)),
-            ("tcs", -(order.amount * config.GST_TCS_RATE)),
-            ("tds", -(order.amount * tds_rate)),
+            ("tcs", -(taxable * config.GST_TCS_RATE)),
+            ("tds", -(taxable * tds_rate)),
         ):
             self._post(order.vendor_id, kind, amount, now, order.order_id)
 
@@ -241,11 +242,18 @@ class VendorManager:
             def total(kind: str) -> Decimal:
                 return money(sum((e.amount for e in entries if e.kind == kind), Decimal(0)))
 
+            def taxable(e: LedgerEntry) -> Decimal:
+                order = self.store.orders.get(e.reference)
+                return order.taxable_value(e.amount) if order else e.amount
+
+            net_taxable = money(sum((taxable(e) for e in entries if e.kind in ("sale", "refund")), Decimal(0)))
             row = {
                 "vendor_id": vendor_id,
-                "gross_sales": total("sale"),
+                "gross_sales": total("sale"),  # GST-inclusive
                 "refunds": -total("refund"),
-                "net_taxable_value": net("sale"),  # sales minus refunds
+                "net_sales_incl_gst": net("sale"),
+                "net_taxable_value": net_taxable,  # excluding GST: the base for TCS and TDS
+                "gst_in_sales": net("sale") - net_taxable,
                 "tcs_collected": -net("tcs"),
                 "tds_deducted": -net("tds"),
                 "commission_earned": -net("commission"),
@@ -254,12 +262,14 @@ class VendorManager:
             if any(row[k] for k in row if k != "vendor_id"):
                 rows.append(row)
         totals = {k: money(sum((r[k] for r in rows), Decimal(0))) for k in
-                  ("gross_sales", "refunds", "net_taxable_value", "tcs_collected", "tds_deducted",
+                  ("gross_sales", "refunds", "net_sales_incl_gst", "net_taxable_value", "gst_in_sales",
+                   "tcs_collected", "tds_deducted",
                    "commission_earned", "gst_on_commission")}
         return {"period": {"start": period_start, "end": period_end}, "vendors": rows, "totals": totals,
                 "rates": {"gst_tcs": config.GST_TCS_RATE, "tds_194o": config.TDS_194O_RATE,
                           "tds_194o_no_pan": config.TDS_194O_NO_PAN_RATE,
-                          "gst_on_commission": config.GST_ON_COMMISSION_RATE}}
+                          "gst_on_commission": config.GST_ON_COMMISSION_RATE,
+                          "prices_include_gst": config.PRICES_INCLUDE_GST}}
 
     def run_payout(self, vendor_id: str, now: datetime) -> dict[str, Any]:
         summary = self.ledger_summary(vendor_id, now)

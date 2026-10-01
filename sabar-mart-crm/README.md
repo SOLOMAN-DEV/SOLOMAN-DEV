@@ -107,12 +107,14 @@ Other environment variables: `SABAR_CRM_API_KEYS` (required), `SABAR_CRM_DOCS=0`
 | Sale | + order amount |
 | Commission | − 10% of the order (each vendor can have their own rate) |
 | GST on commission | − 18% of the commission |
-| TCS | − 0.5% of the order (CGST s.52) |
-| TDS | − 0.1% of the order (s.194-O), or 5% if the vendor's PAN card is not verified |
+| TCS | − 0.5% of the taxable value (CGST s.52) |
+| TDS | − 0.1% of the taxable value (s.194-O), or 5% if the vendor's PAN card is not verified |
 
-Vendors are paid the balance, minus orders still inside the return window. `GET /finance/tax-report` adds up TCS, TDS and GST on commission per vendor for any period, for filing.
+Prices include GST, so the **taxable value** is price ÷ (1 + the product's GST rate). For example, ₹1,180 at 18% has a taxable value of ₹1,000. Every product must be sent with its `gst_rate` (e.g. `0.05`, `0.18`, `0.40`), and each order keeps the rate it was sold at. Commission is charged on the GST-inclusive price.
 
-> ⚠️ **Have your Chartered Accountant confirm the rates and their base** (`config.py`) before go-live. The defaults follow Budget 2024 and assume order amounts exclude GST. Threshold exemptions are not modelled.
+Vendors are paid the balance, minus orders still inside the return window. `GET /finance/tax-report` adds up, per vendor and for any period: sales including GST, the taxable value, TCS, TDS and GST on commission, for filing.
+
+> ⚠️ **Have your Chartered Accountant confirm the rates and their base** (`config.py`) before go-live. The defaults follow Budget 2024. Threshold exemptions are not modelled.
 
 **Refunds.** Only delivered orders can be refunded. An undelivered order is cancelled instead.
 - Refunds up to the standard limit (10,000) are applied straight away. Larger ones wait for finance approval, and the person who requested a refund can never approve it.

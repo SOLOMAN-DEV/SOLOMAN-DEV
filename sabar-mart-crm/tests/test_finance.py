@@ -40,14 +40,31 @@ class TaxTests(unittest.TestCase):
     def test_sale_posts_tax_components(self):
         crm = make()
         deliver(crm, "O-1", "1000.00", NOW - timedelta(days=30))
+        # Price includes 18% GST: taxable value 1000 / 1.18 = 847.46 is the TCS/TDS base;
+        # commission is charged on the GST-inclusive price.
         self.assertEqual(kinds(crm, "O-1"), {
             "sale": D("1000.00"), "commission": D("-100.00"), "commission_gst": D("-18.00"),
-            "tcs": D("-5.00"), "tds": D("-1.00")})
+            "tcs": D("-4.24"), "tds": D("-0.85")})
+
+    def test_gst_rate_is_taken_from_product_at_order_time(self):
+        crm = make()
+        crm.store.products["P-1"].gst_rate = D("0.05")
+        deliver(crm, "O-1", "1050.00", NOW - timedelta(days=30))
+        crm.store.products["P-1"].gst_rate = D("0.40")  # a later rate change does not touch past orders
+        order = crm.store.orders["O-1"]
+        self.assertEqual((order.gst_rate, order.taxable_value()), (D("0.05"), D("1000.00")))
+        self.assertEqual(kinds(crm, "O-1")["tcs"], D("-5.00"))
+
+    def test_zero_rated_product(self):
+        crm = make()
+        crm.store.products["P-1"].gst_rate = D("0")
+        deliver(crm, "O-1", "1000.00", NOW - timedelta(days=30))
+        self.assertEqual((kinds(crm, "O-1")["tcs"], kinds(crm, "O-1")["tds"]), (D("-5.00"), D("-1.00")))
 
     def test_higher_tds_without_verified_pan(self):
         crm = make(pan=False)
         deliver(crm, "O-1", "1000.00", NOW - timedelta(days=30))
-        self.assertEqual(kinds(crm, "O-1")["tds"], D("-50.00"))
+        self.assertEqual(kinds(crm, "O-1")["tds"], D("-42.37"))  # 5% of 847.46
 
     def test_tax_report_nets_refunds(self):
         crm = make()
@@ -55,9 +72,10 @@ class TaxTests(unittest.TestCase):
         crm.request_refund("O-1", D("400.00"), "partial damage", "agent", NOW)
         report = crm.vendors.tax_report(NOW - timedelta(days=30), NOW + timedelta(days=1))
         totals = report["totals"]
-        self.assertEqual((totals["gross_sales"], totals["refunds"], totals["net_taxable_value"]),
+        self.assertEqual((totals["gross_sales"], totals["refunds"], totals["net_sales_incl_gst"]),
                          (D("1000.00"), D("400.00"), D("600.00")))
-        self.assertEqual((totals["tcs_collected"], totals["tds_deducted"]), (D("3.00"), D("0.60")))
+        self.assertEqual((totals["net_taxable_value"], totals["gst_in_sales"]), (D("508.48"), D("91.52")))
+        self.assertEqual((totals["tcs_collected"], totals["tds_deducted"]), (D("2.54"), D("0.51")))
         self.assertEqual(report["vendors"][0]["vendor_id"], "V-1")
 
 
@@ -83,7 +101,7 @@ class RefundTests(unittest.TestCase):
         before = crm.vendors.ledger_summary("V-1", NOW)["outstanding_balance"]
         crm.request_refund("O-1", D("250.00"), "late delivery", "agent", NOW)
         after = crm.vendors.ledger_summary("V-1", NOW)["outstanding_balance"]
-        self.assertEqual(before - after, D("219.00"))  # 250 less the 12.4% withheld on it
+        self.assertEqual(before - after, D("219.23"))  # 250 less its share of commission, GST, TCS, TDS
         self.assertEqual(crm.store.customers["C-1"].loyalty_points, 7)  # points for 1000 (10) -> 750 (7)
 
     def test_large_refund_needs_finance_approval(self):

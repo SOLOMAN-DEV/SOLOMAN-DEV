@@ -31,7 +31,12 @@ GST_ON_COMMISSION_RATE = Decimal("0.18")  # GST charged on Sabar Mart's commissi
 GST_TCS_RATE = Decimal("0.005")           # TCS, CGST Act s.52 (0.25% CGST + 0.25% SGST, or 0.5% IGST)
 TDS_194O_RATE = Decimal("0.001")          # TDS, Income-tax Act s.194-O, vendor with PAN on file
 TDS_194O_NO_PAN_RATE = Decimal("0.05")    # s.206AA: higher rate when the vendor's PAN is not verified
-# Base for TCS/TDS: the order amount is treated as the taxable value (prices exclusive of GST).
+# Base for TCS/TDS: the taxable value of the sale, i.e. excluding GST. Sabar Mart prices include
+# GST, so the taxable value is price / (1 + the product's GST rate). Commission is charged on the
+# GST-inclusive price.
+PRICES_INCLUDE_GST = True
+DEFAULT_GST_RATE = Decimal("0.18")  # only used when a product is created without a rate (the API requires one)
+MAX_GST_RATE = Decimal("0.40")
 
 MIN_REVIEW_SCORE = Decimal("3.5")
 MIN_FULFILLMENT_RATE = Decimal("0.95")

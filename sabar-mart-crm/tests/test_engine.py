@@ -121,12 +121,13 @@ class VendorTests(unittest.TestCase):
         self.assertEqual(summary["gross_sales"], Decimal("3000.00"))
         self.assertEqual(summary["commission_deducted"], Decimal("300.00"))
         self.assertEqual(summary["gst_on_commission"], Decimal("54.00"))
-        self.assertEqual(summary["tcs_withheld"], Decimal("15.00"))
-        self.assertEqual(summary["tds_withheld"], Decimal("3.00"))
-        self.assertEqual(summary["held_in_return_window"], Decimal("1752.00"))
-        self.assertEqual(summary["payable_now"], Decimal("876.00"))
+        # TCS/TDS on the GST-exclusive value (18% GST): 847.46 + 1694.92
+        self.assertEqual(summary["tcs_withheld"], Decimal("12.71"))
+        self.assertEqual(summary["tds_withheld"], Decimal("2.54"))
+        self.assertEqual(summary["held_in_return_window"], Decimal("1753.84"))
+        self.assertEqual(summary["payable_now"], Decimal("876.91"))
         payout = crm.vendors.run_payout("V-1", NOW)
-        self.assertEqual((payout["status"], payout["amount"]), ("paid", Decimal("876.00")))
+        self.assertEqual((payout["status"], payout["amount"]), ("paid", Decimal("876.91")))
         self.assertEqual(crm.vendors.run_payout("V-1", NOW + timedelta(days=1))["status"], "not_due")
 
     def test_return_reverses_sale_and_commission(self):

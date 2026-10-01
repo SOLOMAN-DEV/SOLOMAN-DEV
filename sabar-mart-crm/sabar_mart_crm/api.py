@@ -105,6 +105,8 @@ class ProductIn(BaseModel):
     vendor_id: str = ID
     name: str = Field(min_length=1, max_length=200)
     category: str = Field(min_length=1, max_length=64)
+    gst_rate: Decimal = Field(ge=0, le=config.MAX_GST_RATE, decimal_places=4,
+                              description="GST rate included in the price, e.g. 0.18 for 18%")
 
 
 class OrderIn(BaseModel):
@@ -359,7 +361,8 @@ def create_app(
         require(role, Permission.INGEST_EVENTS)
         absent(crm.store.products, body.product_id, "product")
         found(crm.store.vendors, body.vendor_id, "vendor")
-        crm.store.products[body.product_id] = Product(body.product_id, body.vendor_id, body.name, body.category)
+        crm.store.products[body.product_id] = Product(body.product_id, body.vendor_id, body.name, body.category,
+                                                     gst_rate=body.gst_rate)
         return {"product_id": body.product_id}
 
     @app.post("/orders", status_code=201, tags=["orders"])

@@ -67,10 +67,19 @@ class Order:
     shipped_late: bool = False
     referral_code: str | None = None
     refunded: Decimal = Decimal("0.00")  # total refunded so far (partial refunds + returns)
+    gst_rate: Decimal | None = None  # copied from the product when the order is placed
 
     @property
     def net_amount(self) -> Decimal:
         return self.amount - self.refunded
+
+    def taxable_value(self, amount: Decimal | None = None) -> Decimal:
+        """GST-exclusive value of ``amount`` (default: the full order amount)."""
+        amount = self.amount if amount is None else amount
+        if not config.PRICES_INCLUDE_GST:
+            return amount
+        rate = config.DEFAULT_GST_RATE if self.gst_rate is None else self.gst_rate
+        return money(amount / (1 + rate))
 
 
 @dataclass

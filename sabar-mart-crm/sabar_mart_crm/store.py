@@ -10,8 +10,10 @@ from __future__ import annotations
 
 from collections.abc import MutableMapping
 from dataclasses import dataclass, field
+from decimal import Decimal
 from typing import Any
 
+from . import config
 from .models import (
     AffiliatePayout,
     ApiUser,
@@ -37,6 +39,7 @@ class Product:
     name: str
     category: str
     popularity: int = 0
+    gst_rate: Decimal = config.DEFAULT_GST_RATE
 
 
 # collection name -> (record class, primary key attribute, indexed attributes)

@@ -76,6 +76,8 @@ class CustomerManager:
         product = self.store.products.get(order.product_id)
         if product:
             product.popularity += 1
+            if order.gst_rate is None:
+                order.gst_rate = product.gst_rate
         return order
 
     def lifetime_value(self, customer_id: str) -> Decimal:
