@@ -178,10 +178,7 @@ class WGT_Vendor_Settings {
 			return;
 		}
 
-		// Read straight from $_POST as a defensive fallback in case the settings-form
-		// argument shape differs across WCFM versions; the nonce is WCFM's own, already
-		// verified before this action fires.
-		$posted = isset( $_POST['wcfm_settings_general'] ) ? wp_unslash( $_POST['wcfm_settings_general'] ) : array();
+		$posted = $this->get_posted_settings_group( $wcfm_settings_form );
 		if ( ! is_array( $posted ) || ! isset( $posted['wgt_gstin'] ) ) {
 			return;
 		}
@@ -196,6 +193,36 @@ class WGT_Vendor_Settings {
 				'state'          => $posted['wgt_state'] ?? '',
 			)
 		);
+	}
+
+	/**
+	 * Our fields are named 'wcfm_settings_general[wgt_gstin]' etc. (WCFM's own convention),
+	 * so wherever they land, they're nested one level under a 'wcfm_settings_general' key.
+	 * WCFM's vendor settings form, like its product manager, submits the whole form as one
+	 * serialized string ($_POST['wcfm_settings_form']) that WCFM's own controller parses and
+	 * hands to our 'wcfm_vendor_settings_update' callback as $wcfm_settings_form — that's the
+	 * reliable source. Falls back to a flat $_POST['wcfm_settings_general'] (in case a
+	 * WCFM version/context genuinely posts a plain, non-serialized form), then to parsing the
+	 * raw serialized string ourselves as a last resort.
+	 */
+	private function get_posted_settings_group( $wcfm_settings_form ) {
+		if ( is_array( $wcfm_settings_form ) && isset( $wcfm_settings_form['wcfm_settings_general'] ) && is_array( $wcfm_settings_form['wcfm_settings_general'] ) ) {
+			return $wcfm_settings_form['wcfm_settings_general'];
+		}
+
+		if ( isset( $_POST['wcfm_settings_general'] ) && is_array( $_POST['wcfm_settings_general'] ) ) {
+			return wp_unslash( $_POST['wcfm_settings_general'] );
+		}
+
+		if ( ! empty( $_POST['wcfm_settings_form'] ) && ! is_array( $_POST['wcfm_settings_form'] ) ) {
+			$parsed = array();
+			parse_str( wp_unslash( $_POST['wcfm_settings_form'] ), $parsed ); // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
+			if ( isset( $parsed['wcfm_settings_general'] ) && is_array( $parsed['wcfm_settings_general'] ) ) {
+				return $parsed['wcfm_settings_general'];
+			}
+		}
+
+		return array();
 	}
 
 	public function render_profile_fields( $user ) {

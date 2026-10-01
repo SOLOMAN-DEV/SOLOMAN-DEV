@@ -158,6 +158,36 @@ class WGT_Product_Fields {
 	}
 
 	/**
+	 * WCFM's frontend product manager submits the entire form as one serialized string
+	 * ($_POST['wcfm_products_manage_form']), which WCFM's own controller parses and hands to
+	 * our 'after_wcfm_products_manage_meta_save' callback as its second argument — our field
+	 * names never appear as flat top-level $_POST keys there, only inside that string. This
+	 * is the fallback for enforce_hsn_rules(), which runs on 'wp_insert_post_data' (fired
+	 * before WCFM's own save hook, so no parsed array is available yet) and therefore has to
+	 * parse that raw string itself. Also covers a plain wp-admin submission, where the field
+	 * genuinely is a flat $_POST key.
+	 */
+	private static function get_posted_product_field( $field_name ) {
+		if ( isset( $_POST[ $field_name ] ) ) {
+			return wp_unslash( $_POST[ $field_name ] );
+		}
+
+		if ( empty( $_POST['wcfm_products_manage_form'] ) ) {
+			return null;
+		}
+
+		$raw = $_POST['wcfm_products_manage_form'];
+		if ( is_array( $raw ) ) {
+			// The WCFM REST API path already hands this over pre-parsed as an array.
+			return isset( $raw[ $field_name ] ) ? wp_unslash( $raw[ $field_name ] ) : null;
+		}
+
+		$parsed = array();
+		parse_str( wp_unslash( $raw ), $parsed ); // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
+		return isset( $parsed[ $field_name ] ) ? $parsed[ $field_name ] : null;
+	}
+
+	/**
 	 * Public wrappers around the same validation save_from_wcfm_form()/save_admin_fields() use,
 	 * so bulk-import tooling (WGT_Bulk_Tax) updates products through the identical rules
 	 * instead of re-implementing them — a malformed HSN is silently dropped rather than saved,
@@ -229,17 +259,29 @@ class WGT_Product_Fields {
 		return __( '5% and 18% are the current standard rates; 40% is the de-merit rate for select luxury/sin goods; 0.25%/3% remain for precious stones/gold. 12%/28% are kept only for legacy items still taxed at the old rates — confirm with your GST practitioner if unsure.', 'wcfm-gst-tcs' );
 	}
 
+	/**
+	 * WCFM hands us its own already-parsed form data as $form_data — that, not $_POST, is
+	 * the reliable source here (see get_posted_product_field() for why). Still falls back to
+	 * get_posted_product_field() per-field in case a particular WCFM version/context doesn't
+	 * populate $form_data the way expected.
+	 */
 	public function save_from_wcfm_form( $product_id, $form_data = array() ) {
 		if ( ! $product_id ) {
 			return;
 		}
 
-		if ( isset( $_POST['wgt_hsn_code'] ) ) {
-			self::save_hsn( $product_id, $_POST['wgt_hsn_code'] );
+		$form_data = is_array( $form_data ) ? $form_data : array();
+
+		$hsn = array_key_exists( 'wgt_hsn_code', $form_data ) ? $form_data['wgt_hsn_code'] : self::get_posted_product_field( 'wgt_hsn_code' );
+		if ( null !== $hsn ) {
+			self::save_hsn( $product_id, $hsn );
 		}
 
-		if ( isset( $_POST['wgt_gst_rate'] ) && '' !== $_POST['wgt_gst_rate'] ) {
-			update_post_meta( $product_id, self::RATE_META, self::sanitize_rate( $_POST['wgt_gst_rate'] ) );
+		$rate = array_key_exists( 'wgt_gst_rate', $form_data ) ? $form_data['wgt_gst_rate'] : self::get_posted_product_field( 'wgt_gst_rate' );
+		if ( null !== $rate && '' !== $rate ) {
+			update_post_meta( $product_id, self::RATE_META, self::sanitize_rate( $rate ) );
+		} elseif ( null !== $rate ) {
+			delete_post_meta( $product_id, self::RATE_META );
 		}
 	}
 
@@ -390,8 +432,8 @@ class WGT_Product_Fields {
 	 * missing (only blocked if Settings > GST & TCS > "Require HSN/SAC code" is on) or
 	 * malformed (blocked unconditionally — a non-empty HSN must always be exactly 6 digits).
 	 * Only acts when 'wgt_hsn_code' was actually part of the submitted form (our own
-	 * product-manage forms), so REST/bulk/programmatic saves that don't touch this field
-	 * are left alone.
+	 * product-manage forms — including WCFM's, via get_posted_product_field()), so
+	 * REST/bulk/programmatic saves that don't touch this field are left alone.
 	 */
 	public function enforce_hsn_rules( $data, $postarr ) {
 		if ( ! isset( $data['post_type'] ) || 'product' !== $data['post_type'] ) {
@@ -400,11 +442,13 @@ class WGT_Product_Fields {
 		if ( 'publish' !== $data['post_status'] ) {
 			return $data;
 		}
-		if ( ! isset( $_POST['wgt_hsn_code'] ) ) {
+
+		$posted_hsn = self::get_posted_product_field( 'wgt_hsn_code' );
+		if ( null === $posted_hsn ) {
 			return $data;
 		}
 
-		$hsn      = self::sanitize_hsn( $_POST['wgt_hsn_code'] );
+		$hsn      = self::sanitize_hsn( $posted_hsn );
 		$settings = WGT_Admin_Settings::get_settings();
 
 		$reason = '';

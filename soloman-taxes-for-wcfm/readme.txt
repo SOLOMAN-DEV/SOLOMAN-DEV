@@ -6,7 +6,7 @@ Tested up to: 6.7
 Requires PHP: 7.4
 WC requires at least: 6.0
 WC tested up to: 9.5
-Stable tag: 2.2.0
+Stable tag: 2.3.0
 License: GPLv2 or later
 
 Adds India GST (CGST/SGST/IGST) tax calculation and GST-TCS (Section 52, CGST Act) compliance
@@ -166,6 +166,26 @@ to a WCFM Marketplace multivendor store.
   include PHPUnit.
 
 == Changelog ==
+
+= 2.3.0 =
+* CRITICAL FIX: HSN/SAC and GST Rate entered on a product through the WCFM frontend product
+  manager were never actually saved — they'd appear blank again (or the GST Rate dropdown
+  would misleadingly show "0%" with no option actually selected) after saving/publishing.
+  Root cause: WCFM's frontend product form submits the entire form as one serialized string,
+  which WCFM's own controller parses and hands to plugins as the *second argument* of the
+  'after_wcfm_products_manage_meta_save' action — this plugin was instead reading the field
+  values straight from $_POST, where they never appear as flat keys in that flow, so every
+  save silently did nothing. Fixed to read from WCFM's own parsed form data (falling back to
+  parsing the raw submission if a given WCFM version/context doesn't populate it), and fixed
+  the same root cause in enforce_hsn_rules() (the "block publish without a valid HSN" check,
+  which ran on a different, earlier hook with no access to WCFM's parsed data at all).
+* Same root cause, same fix: vendor GSTIN/PAN/legal name/state entered through the WCFM
+  vendor Settings > General tab had the identical problem and are now saved correctly too.
+* If you were on an earlier version and your vendors' product HSN/GST or GSTIN/PAN/state
+  appear empty despite having been entered through the WCFM frontend (not wp-admin, which was
+  never affected), that data was never actually written — it will need to be re-entered after
+  updating to this version. Check Settings > GST & TCS's compliance panel for a count of
+  products still missing an HSN/SAC code or vendors without a GSTIN on file.
 
 = 2.2.0 =
 * Made every screen this plugin renders responsive on narrow/mobile screens: wide data tables
