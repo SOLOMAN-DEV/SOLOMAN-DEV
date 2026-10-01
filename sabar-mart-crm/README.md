@@ -96,6 +96,15 @@ Every request runs in one transaction under a database-wide lock, and it commits
 
 Other environment variables: `SABAR_CRM_API_KEYS` (required), `SABAR_CRM_DOCS=0` (hide `/docs` in production), and `SABAR_CRM_SEED_DEMO=1` (load demo data into an empty store).
 
+### Backups and monitoring
+
+- **Backups:** `python -m sabar_mart_crm.db backup DIR --keep 14` writes a consistent, verified, owner-only snapshot of every table. `restore FILE` loads one into an empty database, which can be a different database type. `scripts/cron.sh backup|purge` runs these from cron.
+- **Health checks:** `GET /health` is a liveness check, and `GET /health?deep=true` also checks the database (`503` when it's unreachable). Point an uptime monitor at the deep one.
+- **Crash alerts:** a crash returns an `error_id`, logs the full error, and sends an email or chat alert (`SABAR_CRM_ALERT_EMAIL` with SMTP settings, or `SABAR_CRM_ALERT_WEBHOOK`). Alerts are rate-limited per problem. Failed backups, database lock timeouts and failed health checks alert too.
+- **Request IDs:** every response carries an `X-Request-ID`.
+
+See [DEPLOY_MILESWEB.md](DEPLOY_MILESWEB.md) steps 7–8 for cron and alert setup on cPanel.
+
 ## Architecture
 
 | Module | Responsibility |
@@ -111,6 +120,8 @@ Other environment variables: `SABAR_CRM_API_KEYS` (required), `SABAR_CRM_DOCS=0`
 | `passenger_wsgi.py` | Passenger (cPanel) entry point that wraps the ASGI app as WSGI |
 | `rbac.py` | Roles, permissions, team queue scoping, PII masking |
 | `privacy.py` | DPDP consent, data export and anonymising erasure |
+| `backup.py` | Consistent, portable backups and restore |
+| `monitoring.py` | Logging set-up and rate-limited email/webhook alerts |
 | `escalation.py` | De-duplicated internal tasks, routed to team queues and sorted by priority |
 
 ### Order lifecycle fan-out

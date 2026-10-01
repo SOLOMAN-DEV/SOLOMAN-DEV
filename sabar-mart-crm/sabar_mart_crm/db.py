@@ -16,6 +16,8 @@ worker processes (as Passenger does on shared hosting).
     python -m sabar_mart_crm.db seed     # load the demo marketplace (empty database only)
     python -m sabar_mart_crm.db check    # test the connection and print row counts
     python -m sabar_mart_crm.db purge    # delete expired idempotency keys (run daily from cron)
+    python -m sabar_mart_crm.db backup DIR [--keep 14]   # consistent snapshot, keeps the newest 14
+    python -m sabar_mart_crm.db restore FILE             # into an empty database only
     python -m sabar_mart_crm.db user-add alice finance   # prints alice's API key (shown once)
     python -m sabar_mart_crm.db user-list
     python -m sabar_mart_crm.db user-disable alice
@@ -30,6 +32,7 @@ import json
 import os
 import sys
 import threading
+import time
 import types
 from collections.abc import Iterator, MutableMapping
 from contextlib import contextmanager
@@ -287,6 +290,9 @@ class MemoryBackend:
         with self._lock:
             return users.find_by_key(self.engine.store, api_key)
 
+    def ping(self) -> dict[str, Any]:
+        return {"database": "memory (data is lost on restart)"}
+
 
 class SQLBackend:
     """Opens a locked transaction per session and persists changes on success."""
@@ -307,7 +313,11 @@ class SQLBackend:
         self._thread_lock = threading.Lock()
 
     def create_schema(self) -> None:
-        METADATA.create_all(self.engine)
+        """Create missing tables. Safe when several worker processes start at once: the
+        check-then-create runs under the CRM lock, so only one process creates each table."""
+        with self._thread_lock, self.engine.connect() as conn, self._process_lock(conn):
+            METADATA.create_all(conn)
+            conn.commit()
 
     def drop_schema(self) -> None:
         METADATA.drop_all(self.engine)
@@ -357,14 +367,27 @@ class SQLBackend:
             yield
 
     @contextmanager
-    def session(self) -> Iterator[CRMEngine]:
+    def locked_connection(self) -> Iterator[Connection]:
+        """A connection inside one transaction, holding the CRM lock (consistent reads and writes)."""
         with self._thread_lock, self.engine.connect() as conn, self._process_lock(conn):
             # The transaction starts only after the lock is held, so it reads the latest committed data,
             # and it commits before the lock is released.
             with conn.begin():
-                store = DBStore(conn)
-                yield CRMEngine(store)
-                store.flush()
+                yield conn
+
+    @contextmanager
+    def session(self) -> Iterator[CRMEngine]:
+        with self.locked_connection() as conn:
+            store = DBStore(conn)
+            yield CRMEngine(store)
+            store.flush()
+
+    def ping(self) -> dict[str, Any]:
+        """Connectivity check for /health (does not take the CRM lock)."""
+        start = time.perf_counter()
+        with self.engine.connect() as conn:
+            conn.execute(select(func.count()).select_from(SEQUENCES)).scalar()
+        return {"database": self.dialect, "latency_ms": round((time.perf_counter() - start) * 1000, 1)}
 
     def lookup_user(self, api_key: str) -> ApiUser | None:
         """Read-only key lookup; it skips the global lock so authentication never queues behind writes."""
@@ -391,7 +414,8 @@ def backend_from_env(engine: CRMEngine | None = None) -> MemoryBackend | SQLBack
 
 def main(argv: list[str]) -> int:
     url = os.environ.get("DATABASE_URL")
-    commands = ("init", "seed", "check", "purge", "user-add", "user-list", "user-disable", "user-rotate")
+    commands = ("init", "seed", "check", "purge", "backup", "restore",
+                "user-add", "user-list", "user-disable", "user-rotate")
     if not url or not argv or argv[0] not in commands:
         print(__doc__)
         return 2
@@ -399,6 +423,8 @@ def main(argv: list[str]) -> int:
     backend.create_schema()
     if argv[0].startswith("user-"):
         return _user_command(backend, argv)
+    if argv[0] in ("backup", "restore"):
+        return _backup_command(backend, argv)
     if argv[0] == "purge":
         from datetime import timedelta
 
@@ -420,6 +446,29 @@ def main(argv: list[str]) -> int:
             for name, table in TABLES.items():
                 print(f"{table.name:<20} {conn.execute(select(func.count()).select_from(table)).scalar()}")
     return 0
+
+
+def _backup_command(backend: SQLBackend, argv: list[str]) -> int:
+    from . import backup
+    from .monitoring import Alerter
+
+    try:
+        if argv[0] == "backup" and len(argv) in (2, 4) and (len(argv) == 2 or argv[2] == "--keep"):
+            info = backup.create_backup(backend, argv[1], keep=int(argv[3]) if len(argv) == 4 else 14)
+            backup.read_backup(info["file"])  # verify the file just written
+            print(f"backup ok: {info['file']} ({info['bytes']} bytes, sha256 {info['sha256'][:16]}..., "
+                  f"{sum(info['rows'].values())} rows, pruned {len(info['pruned'])})")
+            return 0
+        if argv[0] == "restore" and len(argv) == 2:
+            counts = backup.restore_backup(backend, argv[1])
+            print(f"restored {sum(counts.values())} rows into {len(counts)} tables")
+            return 0
+    except Exception as exc:
+        Alerter.from_env().send("backup", f"CRM {argv[0]} failed", f"{type(exc).__name__}: {exc}", wait=True)
+        print(f"{argv[0]} FAILED: {type(exc).__name__}: {exc}")
+        return 1
+    print(__doc__)
+    return 2
 
 
 def _user_command(backend: SQLBackend, argv: list[str]) -> int:

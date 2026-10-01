@@ -14,6 +14,11 @@ never receives a success for a write that was not saved.
 
 import functools
 import hashlib
+import logging
+import re
+import time
+import traceback
+import uuid
 import hmac
 import json
 from dataclasses import dataclass
@@ -44,10 +49,15 @@ from .models import (
 )
 from . import users
 from .db import MemoryBackend, SQLBackend, StorageBusy, backend_from_env
+from .monitoring import Alerter, configure_logging
 from .rbac import AccessDenied, Permission, Role, has_permission, mask_pii, require, require_team
 from .store import Product
 
 Clock = Callable[[], datetime]
+
+log = logging.getLogger("sabar_crm")
+REQUEST_ID_RE = re.compile(r"^[A-Za-z0-9_.-]{8,64}$")
+SLOW_REQUEST_SECONDS = 3.0
 
 ID = Field(min_length=1, max_length=64, pattern=r"^[A-Za-z0-9_.-]+$")
 EMAIL = Field(max_length=254, pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
@@ -232,6 +242,7 @@ def create_app(
     api_keys: Mapping[str, Role | Actor] | None = None,
     clock: Clock = utc_now,
     backend: MemoryBackend | SQLBackend | None = None,
+    alerter: Alerter | None = None,
 ) -> FastAPI:
     """Build the app. Storage: ``backend`` if given, else ``engine`` in memory, else from ``DATABASE_URL``."""
     if backend is None:
@@ -245,10 +256,38 @@ def create_app(
         redoc_url="/redoc" if docs else None,
         openapi_url="/openapi.json" if docs else None,
         title="Sabar Mart CRM API",
-        version="1.3.0",
+        version="1.4.0",
         description="REST access to the Sabar Mart CRM engine: customers, vendors, affiliates and internal tasks.",
     )
     app.state.backend = backend
+    alerter = alerter if alerter is not None else Alerter.from_env()
+    app.state.alerter = alerter
+
+    @app.middleware("http")
+    async def request_context(request: Request, call_next: Callable[..., Any]) -> Any:
+        incoming = request.headers.get("X-Request-ID", "")
+        request.state.request_id = incoming if REQUEST_ID_RE.match(incoming) else uuid.uuid4().hex[:16]
+        started = time.perf_counter()
+        response = await call_next(request)
+        elapsed = time.perf_counter() - started
+        if elapsed > SLOW_REQUEST_SECONDS:
+            log.warning("slow request %s %s took %.1fs (request %s)", request.method, request.url.path, elapsed,
+                        request.state.request_id)
+        response.headers["X-Request-ID"] = request.state.request_id
+        return response
+
+    @app.exception_handler(Exception)
+    async def _internal_error(request: Request, exc: Exception) -> JSONResponse:
+        error_id = getattr(request.state, "request_id", None) or uuid.uuid4().hex[:16]
+        route = getattr(request.scope.get("route"), "path", request.url.path)
+        actor = getattr(request.state, "actor", None)
+        trace = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+        alerter.send(f"500:{type(exc).__name__}:{request.method}:{route}",
+                     f"500 {type(exc).__name__} on {request.method} {route}",
+                     f"error id: {error_id}\npath: {request.url.path}\n"
+                     f"caller: {actor.name if actor else 'anonymous'}\n\n{trace}")
+        return JSONResponse(status_code=500, content={"detail": "internal error", "error_id": error_id},
+                            headers={"X-Request-ID": error_id})
 
     def audit(crm: CRMEngine, request: Request, outcome: str) -> None:
         actor: Actor | None = getattr(request.state, "actor", None)
@@ -312,7 +351,10 @@ def create_app(
         return JSONResponse(status_code=403, content={"detail": str(exc)})
 
     @app.exception_handler(StorageBusy)
-    async def _busy(_: Request, exc: StorageBusy) -> JSONResponse:
+    async def _busy(request: Request, exc: StorageBusy) -> JSONResponse:
+        alerter.send("storage-busy", "CRM database lock timeouts",
+                     f"{request.method} {request.url.path} waited too long for the database lock; "
+                     "a request may be stuck or the server overloaded.")
         return JSONResponse(status_code=503, content={"detail": str(exc)}, headers={"Retry-After": "5"})
 
     @app.exception_handler(ValueError)
@@ -367,8 +409,15 @@ def create_app(
     # --- Meta -----------------------------------------------------------------
 
     @app.get("/health", tags=["meta"])
-    async def health() -> dict[str, str]:
-        return {"status": "ok"}
+    def health(deep: bool = False) -> Any:
+        """Liveness; with ``?deep=true`` also checks the database (for uptime monitors)."""
+        if not deep:
+            return {"status": "ok"}
+        try:
+            return {"status": "ok", "version": app.version, **backend.ping()}
+        except Exception as exc:
+            alerter.send("health-db", "CRM health check failed: database unreachable", f"{type(exc).__name__}: {exc}")
+            return JSONResponse(status_code=503, content={"status": "error", "database": "unreachable"})
 
     @app.get("/me", tags=["meta"])
     async def me(actor: ActorDep) -> dict[str, Any]:
@@ -922,6 +971,7 @@ def create_app(
 
 
 def _default_app() -> FastAPI:
+    configure_logging()
     backend = backend_from_env()
     if os.environ.get("SABAR_CRM_SEED_DEMO") == "1":
         from .__main__ import seed
@@ -933,4 +983,14 @@ def _default_app() -> FastAPI:
     return create_app(backend=backend)
 
 
-app = _default_app()
+_app: FastAPI | None = None
+
+
+def __getattr__(name: str) -> Any:
+    """``app`` is built on first use (``uvicorn sabar_mart_crm.api:app``, passenger_wsgi.py), not on import."""
+    global _app
+    if name == "app":
+        if _app is None:
+            _app = _default_app()
+        return _app
+    raise AttributeError(name)

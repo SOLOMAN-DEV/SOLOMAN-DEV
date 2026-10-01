@@ -20,11 +20,14 @@ test('storefront -> outbox -> CRM, surviving an outage', { skip: !ready && 'live
   const admin = new CrmClient({ baseUrl: CRM_URL, apiKey: CRM_ADMIN_KEY });
   const quiet = { warn() {}, error() {}, info() {} };
   try {
-    await pool.query('DROP TABLE IF EXISTS storefront_crm_outbox');
-    await pool.query(fs.readFileSync(path.join(__dirname, '..', 'sql', 'outbox.mysql.sql'), 'utf8'));
+    // Own table, so this can run in parallel with outbox.test.js against the same database.
+    const table = 'live_test_crm_outbox';
+    await pool.query(`DROP TABLE IF EXISTS ${table}`);
+    await pool.query(fs.readFileSync(path.join(__dirname, '..', 'sql', 'outbox.mysql.sql'), 'utf8')
+      .replace('storefront_crm_outbox', table));
     await pool.query('CREATE TABLE IF NOT EXISTS live_orders (id VARCHAR(64) PRIMARY KEY, amount DECIMAL(12,2))');
     await pool.query('DELETE FROM live_orders');
-    const store = new MysqlOutboxStore(pool);
+    const store = new MysqlOutboxStore(pool, { table });
 
     // Vendors are onboarded in the CRM by the vendor team, not by the storefront.
     await admin.request('POST', '/vendors', {
@@ -59,7 +62,7 @@ test('storefront -> outbox -> CRM, surviving an outage', { skip: !ready && 'live
     assert.deepEqual(await store.stats(), { pending: 0, sent: 5, dead: 0 });
 
     // 3. The same events emitted again (e.g. a storefront bug or replayed job) are not re-applied.
-    await pool.query("UPDATE storefront_crm_outbox SET status = 'pending'");
+    await pool.query(`UPDATE ${table} SET status = 'pending'`);
     assert.equal(await w2.runOnce(), 5);
     const ledger = await admin.request('GET', '/vendors/LIVE-V1/ledger');
     assert.equal(ledger.gross_sales, '1180.00');

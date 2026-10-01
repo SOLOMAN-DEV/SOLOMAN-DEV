@@ -85,6 +85,74 @@ class BackendMixin:
         with backend.session() as crm:
             self.assertEqual(len(crm.store.idempotency), 0)
 
+    def test_backup_and_restore_roundtrip(self):
+        from sabar_mart_crm import backup
+        backend = self.make_backend()
+        with backend.session() as crm:
+            seed(NOW, crm)
+        with backend.session() as crm:
+            expected = json.dumps(reports(crm, NOW), sort_keys=True, default=str)
+        with tempfile.TemporaryDirectory() as tmp:
+            info = backup.create_backup(backend, tmp)
+            self.assertEqual(os.stat(info["file"]).st_mode & 0o777, 0o600)  # contains personal data
+            self.assertGreater(info["rows"]["crm_ledger"], 0)
+
+            # Restore into a fresh SQLite database (also proves backups move between database types).
+            target = SQLBackend(sqlite_url(tmp))
+            self.addCleanup(target.engine.dispose)
+            counts = backup.restore_backup(target, info["file"])
+            self.assertEqual(counts, {k: v for k, v in info["rows"].items() if v} | {
+                k: 0 for k, v in info["rows"].items() if not v and k in counts})
+            with target.session() as crm:
+                self.assertEqual(json.dumps(reports(crm, NOW), sort_keys=True, default=str), expected)
+                self.assertEqual(crm.store.next_id("task"), 6)  # sequences restored too
+            with self.assertRaisesRegex(ValueError, "not empty"):
+                backup.restore_backup(target, info["file"])
+
+    def test_backup_rejects_damaged_files_and_prunes(self):
+        import gzip
+
+        from sabar_mart_crm import backup
+        backend = self.make_backend()
+        with tempfile.TemporaryDirectory() as tmp:
+            info = backup.create_backup(backend, tmp)
+            with gzip.open(info["file"], "rt") as fh:
+                lines = fh.readlines()
+            damaged = os.path.join(tmp, "damaged.jsonl.gz")
+            with gzip.open(damaged, "wt") as fh:
+                fh.writelines(lines[:-1])  # no end marker
+            with self.assertRaisesRegex(ValueError, "truncated"):
+                backup.read_backup(damaged)
+            for stamp in ("20260101-000000", "20260102-000000", "20260103-000000"):
+                open(os.path.join(tmp, f"sabar-crm-{stamp}.jsonl.gz"), "wb").close()
+            self.assertEqual(len(backup.prune(__import__("pathlib").Path(tmp), keep=2)), 2)
+            self.assertTrue(os.path.exists(info["file"]))  # the newest are kept
+
+    def test_concurrent_startup_creates_schema_once(self):
+        # Several worker processes booting at once on an empty database (Passenger, gunicorn -w N).
+        self.make_backend().drop_schema()
+        backends = [SQLBackend(self.url) for _ in range(4)]
+        for b in backends:
+            self.addCleanup(b.engine.dispose)
+        errors = []
+        barrier = threading.Barrier(len(backends))
+
+        def boot(backend):
+            try:
+                barrier.wait()
+                backend.create_schema()
+            except Exception as exc:  # pragma: no cover - surfaced below
+                errors.append(exc)
+
+        threads = [threading.Thread(target=boot, args=(b,)) for b in backends]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        self.assertEqual(errors, [])
+        with backends[0].session() as crm:
+            self.assertEqual(len(crm.store.customers), 0)
+
     def test_concurrent_writers_lose_no_updates(self):
         # Two backends on one database stand in for two worker processes.
         backends = [self.make_backend(), SQLBackend(self.url)]

@@ -44,6 +44,9 @@ Then add these **environment variables** on the same screen:
 | `DATABASE_URL` | the URL from step 1 |
 | `SABAR_CRM_API_KEYS` | `LONG_RANDOM_KEY_1:admin,LONG_RANDOM_KEY_2:system,…`, one key per role you need |
 | `SABAR_CRM_DOCS` | `0` to hide `/docs` in production (optional) |
+| `SABAR_CRM_ALERT_EMAIL` | addresses that get error alerts, comma-separated, e.g. `ops@sabarmart.com` |
+| `SABAR_CRM_SMTP_HOST`, `SABAR_CRM_SMTP_PORT`, `SABAR_CRM_SMTP_USER`, `SABAR_CRM_SMTP_PASSWORD` | a cPanel mailbox to send alerts from, e.g. `mail.sabarmart.com`, `465`, `alerts@sabarmart.com`, its password |
+| `SABAR_CRM_ALERT_WEBHOOK` | optional chat webhook (Google Chat, Slack) for alerts |
 
 To generate each key, run `python3 -c "import secrets;print(secrets.token_urlsafe(32))"`.
 
@@ -82,6 +85,53 @@ curl https://crm.sabarmart.com/health                                    # {"sta
 curl -H "Authorization: Bearer LONG_RANDOM_KEY_1" https://crm.sabarmart.com/me
 ```
 Turn on HTTPS for the domain with **SSL/TLS Status → Run AutoSSL**. API keys must never travel over plain HTTP.
+
+### 7. Schedule backups and maintenance
+
+Cron jobs don't see the variables from the Python App screen, so put the settings in a private file:
+```bash
+cat > ~/.sabar-crm.env <<'ENV'
+SABAR_CRM_VENV=/home/cpuser/virtualenv/sabar-mart-crm/3.11
+DATABASE_URL=mysql+pymysql://cpuser_crmapp:PASSWORD@localhost/cpuser_crm?charset=utf8mb4
+SABAR_CRM_BACKUP_DIR=/home/cpuser/crm-backups
+SABAR_CRM_BACKUP_KEEP=14
+SABAR_CRM_ALERT_EMAIL=ops@sabarmart.com
+SABAR_CRM_SMTP_HOST=mail.sabarmart.com
+SABAR_CRM_SMTP_USER=alerts@sabarmart.com
+SABAR_CRM_SMTP_PASSWORD=...
+ENV
+chmod 600 ~/.sabar-crm.env
+chmod +x ~/sabar-mart-crm/scripts/cron.sh
+~/sabar-mart-crm/scripts/cron.sh backup      # try it once by hand
+```
+Take the `SABAR_CRM_VENV` path from the `source …/bin/activate` command shown on the Python App page.
+
+In cPanel, go to **Advanced → Cron Jobs** and add these two jobs. Set **Cron Email** to your address so cron's output reaches you as well.
+
+| When | Command |
+|---|---|
+| Daily 02:30 | `/home/cpuser/sabar-mart-crm/scripts/cron.sh backup` |
+| Daily 03:15 | `/home/cpuser/sabar-mart-crm/scripts/cron.sh purge` |
+
+What the backup does:
+- **Snapshot:** each backup is a single compressed file in `~/crm-backups`, readable only by you. The command reads it back to check it before reporting `backup ok`, and keeps the newest 14.
+- **Writes pause:** while the snapshot is taken (usually a few seconds), API writes wait.
+- **Failure alerts:** if a backup fails, you get an alert email.
+
+**Copy backups off the server.** A backup on the same server doesn't survive losing the account. Download them regularly, or add cPanel's own **Backup** / JetBackup to your plan. Backups contain personal data, so store them securely and delete old copies on schedule (DPDP).
+
+**To restore** into an empty database, for example after a disaster or when moving servers:
+```bash
+python -m sabar_mart_crm.db restore ~/crm-backups/sabar-crm-20261001-023000.jsonl.gz
+```
+A restore refuses to overwrite a database that already has data. Backups also move between database types, for example MySQL to PostgreSQL.
+
+### 8. Monitoring
+
+- **Error alerts:** if an unexpected error happens, the caller gets `{"detail": "internal error", "error_id": "…"}`. The full error goes to the app's log with that ID, and an alert is emailed with the same ID. Each distinct problem alerts at most once every 15 minutes (`SABAR_CRM_ALERT_COOLDOWN`). Database lock timeouts and a failed health check also send alerts.
+- **Uptime monitor:** point a free monitor such as UptimeRobot at `https://crm.sabarmart.com/health?deep=true`. It returns `200` when the app and the database are up, and `503` when the database is unreachable.
+- **Request IDs:** every response carries an `X-Request-ID` header. Send your own from the storefront and you can trace a request across both systems' logs.
+- **Storefront sync:** on the storefront side, watch `outbox.stats()`. Alert if `pending` keeps growing or `dead > 0`.
 
 ### Updating later
 Upload or pull the new code, run **Run Pip Install** again if `requirements.txt` changed, then click **Restart**. Passenger also restarts the app when you run `touch ~/sabar-mart-crm/tmp/restart.txt`.
