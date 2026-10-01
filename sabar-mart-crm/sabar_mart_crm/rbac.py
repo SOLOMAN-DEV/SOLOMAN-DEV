@@ -35,6 +35,9 @@ class Permission(str, Enum):
     REQUEST_REFUNDS = "support:refunds:request"
     MANAGE_AFFILIATES = "affiliate:manage"
     RUN_PAYOUTS = "finance:payouts:run"
+    APPROVE_REFUNDS = "finance:refunds:approve"
+    MANAGE_USERS = "admin:users:manage"
+    VIEW_AUDIT = "admin:audit:view"
 
 
 ROLE_PERMISSIONS: dict[Role, frozenset[Permission]] = {
@@ -55,6 +58,7 @@ ROLE_PERMISSIONS: dict[Role, frozenset[Permission]] = {
         Permission.VIEW_TASKS,
         Permission.RESOLVE_TASKS,
         Permission.RUN_PAYOUTS,
+        Permission.APPROVE_REFUNDS,
     }),
     Role.VENDOR_MANAGER: frozenset({
         Permission.VIEW_VENDOR_PROFILE,

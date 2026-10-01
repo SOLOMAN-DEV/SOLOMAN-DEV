@@ -66,6 +66,11 @@ class Order:
     delivered_at: datetime | None = None
     shipped_late: bool = False
     referral_code: str | None = None
+    refunded: Decimal = Decimal("0.00")  # total refunded so far (partial refunds + returns)
+
+    @property
+    def net_amount(self) -> Decimal:
+        return self.amount - self.refunded
 
 
 @dataclass
@@ -172,12 +177,70 @@ class MarketingAsset:
     restricted_to_tier: str | None = None
 
 
+class RefundStatus(str, Enum):
+    PENDING = "pending_review"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+
+
+@dataclass
+class Refund:
+    refund_id: str
+    order_id: str
+    customer_id: str
+    vendor_id: str
+    amount: Decimal
+    reason: str
+    requested_by: str
+    requested_at: datetime
+    status: RefundStatus
+    decided_by: str | None = None
+    decided_at: datetime | None = None
+    task_id: str | None = None
+
+
 @dataclass
 class Attribution:
     order_id: str
     affiliate_id: str
     click_id: str
     amount: Decimal
+    commission_paid: Decimal = Decimal("0.00")  # cumulative, across payouts and clawbacks
+    commission_rate: Decimal | None = None  # locked when the order is first paid out
+
+
+@dataclass
+class AffiliatePayout:
+    payout_id: str
+    affiliate_id: str
+    created_at: datetime
+    run_by: str
+    tier: str
+    commission_rate: Decimal
+    amount: Decimal
+    lines: list[dict[str, str]] = field(default_factory=list)  # order_id, net_sales, commission, kind
+
+
+# --- Access & audit -----------------------------------------------------
+
+@dataclass
+class ApiUser:
+    username: str
+    role: str
+    key_hash: str  # sha256 of the API key; the key itself is never stored
+    created_at: datetime
+    active: bool = True
+
+
+@dataclass
+class AuditEntry:
+    audit_id: str
+    at: datetime
+    actor: str
+    role: str
+    method: str
+    path: str
+    outcome: str  # success | denied | not_found | conflict | invalid | error
 
 
 # --- Internal workflow ---------------------------------------------------

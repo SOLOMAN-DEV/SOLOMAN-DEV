@@ -13,6 +13,9 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from .models import (
+    AffiliatePayout,
+    ApiUser,
+    AuditEntry,
     Affiliate,
     Attribution,
     Customer,
@@ -21,6 +24,7 @@ from .models import (
     MarketingAsset,
     Order,
     ReferralClick,
+    Refund,
     SupportTicket,
     Vendor,
 )
@@ -48,6 +52,10 @@ COLLECTIONS: dict[str, tuple[type, str, tuple[str, ...]]] = {
     "attributions": (Attribution, "order_id", ("affiliate_id",)),
     "assets": (MarketingAsset, "asset_id", ()),
     "tasks": (InternalTask, "task_id", ("owner_team", "subject_id")),
+    "refunds": (Refund, "refund_id", ("order_id", "status")),
+    "affiliate_payouts": (AffiliatePayout, "payout_id", ("affiliate_id",)),
+    "users": (ApiUser, "username", ("key_hash",)),
+    "audit": (AuditEntry, "audit_id", ("actor",)),
 }
 
 
@@ -64,6 +72,10 @@ class Store:
     attributions: MutableMapping[str, Attribution] = field(default_factory=dict)
     assets: MutableMapping[str, MarketingAsset] = field(default_factory=dict)
     tasks: MutableMapping[str, InternalTask] = field(default_factory=dict)
+    refunds: MutableMapping[str, Refund] = field(default_factory=dict)
+    affiliate_payouts: MutableMapping[str, AffiliatePayout] = field(default_factory=dict)
+    users: MutableMapping[str, ApiUser] = field(default_factory=dict)
+    audit: MutableMapping[str, AuditEntry] = field(default_factory=dict)
     sequences: dict[str, int] = field(default_factory=dict)
 
     def next_id(self, name: str) -> int:
@@ -75,6 +87,11 @@ class Store:
         """Records whose attributes equal every criterion. DBStore answers indexed ones with SQL."""
         return [r for r in getattr(self, collection).values()
                 if all(getattr(r, k) == v for k, v in criteria.items())]
+
+    def recent(self, collection: str, limit: int) -> list[Any]:
+        """The ``limit`` records with the highest IDs, newest first (IDs are zero-padded sequences)."""
+        items = getattr(self, collection)
+        return [items[k] for k in sorted(items, reverse=True)[:limit]]
 
     def affiliate_by_code(self, code: str) -> Affiliate | None:
         return next(iter(self.find("affiliates", referral_code=code)), None)

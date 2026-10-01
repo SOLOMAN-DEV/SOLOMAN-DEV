@@ -27,7 +27,14 @@ uvicorn sabar_mart_crm.api:app --reload
 
 Interactive docs are served at `http://localhost:8000/docs`. `SABAR_CRM_SEED_DEMO=1` loads the sample marketplace. Leave it out to start empty.
 
-**Authentication.** Every endpoint except `/health` needs `Authorization: Bearer <key>`. `SABAR_CRM_API_KEYS` maps each key to a role, so callers can never pick their own role. Each role's permissions apply exactly as listed in the RBAC table below, and the `system` role is for the storefront to push events. Use long random keys in production and serve the API over HTTPS.
+**Authentication.** Every endpoint except `/health` needs `Authorization: Bearer <key>`. The key decides who the caller is and which role they have, so callers can never pick their own role. There are two kinds of key:
+
+- **Personal keys (recommended for people).** Create them with `POST /users` (admin only) or with `python -m sabar_mart_crm.db user-add priya finance`. The key is shown once. Only its SHA-256 hash is stored, so a lost key can only be replaced (`rotate-key`), never recovered. `deactivate` revokes a key immediately.
+- **Environment keys,** for bootstrapping and for service accounts such as the storefront. Set them as `SABAR_CRM_API_KEYS="key:role[:name],..."`, for example `…:system:storefront`.
+
+**Audit log.** `GET /audit` (admin only, filter with `?actor=`) records who did what and when, by person. It covers every change, every refused request (403), and every read of sensitive data: customer profiles, ledgers, payout reports, the tax report and the audit log itself. Request bodies are never logged.
+
+Serve the API over HTTPS only.
 
 ```bash
 curl -H "Authorization: Bearer sk-admin-change-me" localhost:8000/analytics
@@ -38,11 +45,13 @@ curl -H "Authorization: Bearer sk-admin-change-me" localhost:8000/analytics
 | Meta | `GET /health`, `GET /me` |
 | Customers | `POST /customers`, `GET /customers/{id}`, `GET /customers/{id}/recommendations`, `GET /customers/abandoned-carts`, `POST /customers/{id}/browse`, `PUT` and `DELETE /customers/{id}/cart/{product_id}` |
 | Orders | `POST /products`, `POST /orders`, `POST /orders/{id}/ship`, `/deliver`, `/return`, `/cancel` |
-| Support | `POST /tickets`, `GET /tickets`, `POST /orders/{id}/refunds` |
+| Support | `POST /tickets`, `GET /tickets` |
+| Refunds | `POST /orders/{id}/refunds`, `GET /refunds?status=&order_id=`, `POST /refunds/{id}/approve`, `POST /refunds/{id}/reject` |
 | Vendors | `POST /vendors`, `GET /vendors/{id}`, `PUT /vendors/{id}/documents/{doc}`, `POST /vendors/{id}/documents/{doc}/review`, `PUT /vendors/{id}/milestones/{m}`, `POST /vendors/{id}/reviews` |
-| Finance | `GET /vendors/payouts`, `GET /vendors/{id}/ledger`, `POST /vendors/{id}/payouts`, `GET /affiliates/payouts`, `GET /affiliates/{id}/commission` |
+| Finance | `GET /vendors/payouts`, `GET /vendors/{id}/ledger`, `POST /vendors/{id}/payouts`, `GET /affiliates/payouts`, `GET /affiliates/{id}/commission`, `GET /affiliates/{id}/payout-preview`, `POST` and `GET /affiliates/{id}/payouts`, `GET /finance/tax-report?start=&end=` |
 | Affiliates | `POST /affiliates`, `GET /affiliates/{id}`, `POST /affiliates/{id}/approve`, `POST /referrals/clicks`, `POST /affiliate-assets`, `POST /affiliates/{id}/assets/{asset_id}` |
 | Internal | `GET /tasks?team=…`, `POST /tasks/{id}/resolve`, `GET /analytics` |
+| Admin | `POST /users`, `GET /users`, `POST /users/{name}/deactivate`, `POST /users/{name}/rotate-key`, `GET /audit` |
 
 Status codes: `401` for a missing or unknown key, `403` when the role lacks permission (checked before existence, so IDs cannot be probed), `404` for an unknown ID, `409` for a duplicate ID or a broken business rule (such as a return after the window or delivering before shipping), and `422` for an invalid body.
 
@@ -89,6 +98,33 @@ Other environment variables: `SABAR_CRM_API_KEYS` (required), `SABAR_CRM_DOCS=0`
 | `return_order` | Only allowed inside the return window. Reverses the sale and the commission, revokes the loyalty points and voids the affiliate commission |
 | `cancel_order` | Lowers the vendor's fulfillment rate |
 
+## Money rules
+
+**Vendor ledger.** Each delivered order posts five entries at once. Withheld amounts are recorded as negative entries.
+
+| Entry | Amount (default rates) |
+|---|---|
+| Sale | + order amount |
+| Commission | − 10% of the order (each vendor can have their own rate) |
+| GST on commission | − 18% of the commission |
+| TCS | − 0.5% of the order (CGST s.52) |
+| TDS | − 0.1% of the order (s.194-O), or 5% if the vendor's PAN card is not verified |
+
+Vendors are paid the balance, minus orders still inside the return window. `GET /finance/tax-report` adds up TCS, TDS and GST on commission per vendor for any period, for filing.
+
+> ⚠️ **Have your Chartered Accountant confirm the rates and their base** (`config.py`) before go-live. The defaults follow Budget 2024 and assume order amounts exclude GST. Threshold exemptions are not modelled.
+
+**Refunds.** Only delivered orders can be refunded. An undelivered order is cancelled instead.
+- Refunds up to the standard limit (10,000) are applied straight away. Larger ones wait for finance approval, and the person who requested a refund can never approve it.
+- Pending refunds count against what is still refundable.
+- An approved refund reverses each ledger entry in proportion, and the reversals add up exactly even across several partial refunds. It also takes back the loyalty points earned on the refunded amount.
+- A return refunds whatever has not been refunded yet and cancels any refunds still pending.
+
+**Affiliate payouts.** Commission is paid only after the return window closes, at the affiliate's tier. The tier is based on their completed orders to date.
+- Each order's rate is fixed the first time it is paid.
+- A payout run records exactly what it paid, so nothing is paid twice.
+- If a paid order is refunded later, the next payout deducts the difference (a clawback). When the clawback is larger than the new commission, the remainder carries forward to the next run.
+
 ## Escalation rules
 
 | Rule | Trigger | Owner team | Priority |
@@ -97,7 +133,7 @@ Other environment variables: `SABAR_CRM_API_KEYS` (required), `SABAR_CRM_DOCS=0`
 | `vendor_low_fulfillment` | Fulfillment rate below 95% | vendor_success | high |
 | `vendor_shipping_delays` | Late shipments above 10% | vendor_success | medium |
 | `vendor_high_returns` | Return rate above 15% | vendor_success | medium |
-| `refund_exceeds_limit` | Refund above 10,000 or above the order value | finance | high |
+| `refund_exceeds_limit` | Refund above 10,000 (needs approval; amounts above what is refundable are rejected outright) | finance | high |
 | `critical_support_ticket` | Fraud, hacked or legal keywords | trust_and_safety / customer_support | critical |
 | `affiliate_self_referral` | Affiliate email matches the buyer's email | affiliate_ops | medium |
 
@@ -109,11 +145,11 @@ A rule that fires again for the same subject updates the task that is already op
 |---|---|
 | `system` | Nothing to read. Can push customers, products, orders, browsing, carts, clicks, reviews and tickets |
 | `support_agent` | Customer profiles with full PII, tickets, the customer_support and trust_and_safety queues |
-| `finance` | Vendor ledgers and payouts, affiliate payouts, vendor profiles, the finance queue |
+| `finance` | Vendor ledgers and payouts, affiliate payouts, the tax report, refund approval, vendor profiles, the finance queue |
 | `vendor_manager` | Vendor scorecards and onboarding, the vendor_success queue |
 | `affiliate_manager` | Affiliates and asset distribution, the affiliate_ops queue |
 | `marketing` | Customer profiles with **masked PII**, recommendations |
-| `admin` | Everything, including global analytics |
+| `admin` | Everything, including global analytics, user management and the audit log |
 
 Any call outside a role's permissions raises `AccessDenied`.
 

@@ -15,6 +15,10 @@ worker processes (as Passenger does on shared hosting).
     python -m sabar_mart_crm.db init     # create tables
     python -m sabar_mart_crm.db seed     # load the demo marketplace (empty database only)
     python -m sabar_mart_crm.db check    # test the connection and print row counts
+    python -m sabar_mart_crm.db user-add alice finance   # prints alice's API key (shown once)
+    python -m sabar_mart_crm.db user-list
+    python -m sabar_mart_crm.db user-disable alice
+    python -m sabar_mart_crm.db user-rotate alice        # new key, old one stops working
 """
 
 from __future__ import annotations
@@ -53,8 +57,9 @@ from sqlalchemy import (
 from sqlalchemy.dialects import mysql
 from sqlalchemy.engine import Connection, Engine, make_url
 
+from . import users
 from .engine import CRMEngine
-from .models import to_jsonable
+from .models import ApiUser, to_jsonable
 from .store import COLLECTIONS, Store
 
 TABLE_PREFIX = "crm_"
@@ -245,6 +250,14 @@ class DBStore(Store):
     def find(self, collection: str, **criteria: Any) -> list[Any]:
         return getattr(self, collection).where(**criteria)
 
+    def recent(self, collection: str, limit: int) -> list[Any]:
+        mapping: DBMapping = getattr(self, collection)
+        table = TABLES[collection]
+        for row in self._conn.execute(select(table.c.id, table.c.data).order_by(table.c.id.desc()).limit(limit)):
+            mapping._adopt(row)
+        keys = sorted(mapping._loaded, reverse=True)[:limit]  # includes rows added in this session
+        return [mapping._loaded[k] for k in keys]
+
     def flush(self) -> None:
         for name in COLLECTIONS:
             getattr(self, name).flush()
@@ -263,6 +276,10 @@ class MemoryBackend:
     def session(self) -> Iterator[CRMEngine]:
         with self._lock:
             yield self.engine
+
+    def lookup_user(self, api_key: str) -> ApiUser | None:
+        with self._lock:
+            return users.find_by_key(self.engine.store, api_key)
 
 
 class SQLBackend:
@@ -343,6 +360,11 @@ class SQLBackend:
                 yield CRMEngine(store)
                 store.flush()
 
+    def lookup_user(self, api_key: str) -> ApiUser | None:
+        """Read-only key lookup; it skips the global lock so authentication never queues behind writes."""
+        with self.engine.connect() as conn:
+            return users.find_by_key(DBStore(conn), api_key)
+
     def is_empty(self) -> bool:
         with self.engine.connect() as conn:
             return not conn.execute(select(func.count()).select_from(TABLES["customers"])).scalar() \
@@ -363,11 +385,14 @@ def backend_from_env(engine: CRMEngine | None = None) -> MemoryBackend | SQLBack
 
 def main(argv: list[str]) -> int:
     url = os.environ.get("DATABASE_URL")
-    if not url or not argv or argv[0] not in ("init", "seed", "check"):
+    commands = ("init", "seed", "check", "user-add", "user-list", "user-disable", "user-rotate")
+    if not url or not argv or argv[0] not in commands:
         print(__doc__)
         return 2
     backend = SQLBackend(url)
     backend.create_schema()
+    if argv[0].startswith("user-"):
+        return _user_command(backend, argv)
     if argv[0] == "seed":
         if not backend.is_empty():
             print("database already has data; refusing to seed")
@@ -380,6 +405,35 @@ def main(argv: list[str]) -> int:
         with backend.engine.connect() as conn:
             for name, table in TABLES.items():
                 print(f"{table.name:<20} {conn.execute(select(func.count()).select_from(table)).scalar()}")
+    return 0
+
+
+def _user_command(backend: SQLBackend, argv: list[str]) -> int:
+    from .rbac import Role
+
+    cmd, args = argv[0], argv[1:]
+    try:
+        with backend.session() as crm:
+            if cmd == "user-add" and len(args) == 2:
+                key = users.create_user(crm.store, args[0], Role(args[1]), _utcnow())
+                print(f"created {args[0]} ({args[1]}). API key (store it now, it is not shown again):\n{key}")
+            elif cmd == "user-list" and not args:
+                for u in sorted(crm.store.users.values(), key=lambda u: u.username):
+                    print(f"{u.username:<24} {u.role:<18} {'active' if u.active else 'disabled'}")
+            elif cmd == "user-disable" and len(args) == 1:
+                users.deactivate(crm.store, args[0])
+                print(f"disabled {args[0]}")
+            elif cmd == "user-rotate" and len(args) == 1:
+                print(f"new API key for {args[0]}:\n{users.rotate_key(crm.store, args[0])}")
+            else:
+                print(__doc__)
+                return 2
+    except KeyError as exc:
+        print(f"no such user: {exc}")
+        return 1
+    except ValueError as exc:
+        print(f"error: {exc}")
+        return 1
     return 0
 
 

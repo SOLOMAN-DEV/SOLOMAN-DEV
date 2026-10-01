@@ -80,7 +80,7 @@ class CustomerManager:
 
     def lifetime_value(self, customer_id: str) -> Decimal:
         orders = self.store.orders_for_customer(customer_id)
-        return money(sum((o.amount for o in orders if o.status in COMPLETED), Decimal(0)))
+        return money(sum((o.net_amount for o in orders if o.status in COMPLETED), Decimal(0)))
 
     def lifecycle_stage(self, customer_id: str, now: datetime) -> LifecycleStage:
         customer = self.store.customers[customer_id]
@@ -124,7 +124,7 @@ class CustomerManager:
     def award_loyalty(self, order: Order) -> list[dict[str, Any]]:
         """Credit points for a delivered order; return any milestone reward triggers."""
         customer = self.store.customers[order.customer_id]
-        customer.loyalty_points += int(order.amount // 100) * config.LOYALTY_POINTS_PER_100
+        customer.loyalty_points += self.points_for(order.amount)
         triggers = []
         for milestone in config.LOYALTY_MILESTONES:
             if customer.loyalty_points >= milestone and milestone not in customer.milestones_awarded:
@@ -138,9 +138,16 @@ class CustomerManager:
                 })
         return triggers
 
-    def revoke_loyalty(self, order: Order) -> None:
-        customer = self.store.customers[order.customer_id]
-        customer.loyalty_points = max(0, customer.loyalty_points - int(order.amount // 100) * config.LOYALTY_POINTS_PER_100)
+    @staticmethod
+    def points_for(amount: Decimal) -> int:
+        return int(amount // 100) * config.LOYALTY_POINTS_PER_100
+
+    def revoke_loyalty(self, customer_id: str, net_before: Decimal, net_after: Decimal) -> int:
+        """Take back the points earned on the refunded part of an order."""
+        customer = self.store.customers[customer_id]
+        revoked = self.points_for(net_before) - self.points_for(net_after)
+        customer.loyalty_points = max(0, customer.loyalty_points - revoked)
+        return revoked
 
     # --- Support ticket intelligence ----------------------------------------
 
@@ -194,31 +201,6 @@ class CustomerManager:
                 details={"customer_id": ticket.customer_id, "assigned_team": team},
             )
         return ticket
-
-    # --- Refunds ------------------------------------------------------------
-
-    def request_refund(self, order_id: str, amount: Decimal, now: datetime) -> dict[str, Any]:
-        order = self.store.orders[order_id]
-        amount = money(amount)
-        breaches = []
-        if amount > config.STANDARD_REFUND_LIMIT:
-            breaches.append(f"exceeds standard limit {config.STANDARD_REFUND_LIMIT}")
-        if amount > order.amount:
-            breaches.append(f"exceeds order value {order.amount}")
-        if not breaches:
-            return {"order_id": order_id, "amount": str(amount), "decision": "auto_approved"}
-        task = self.escalations.raise_task(
-            rule="refund_exceeds_limit",
-            title=f"Refund review: order {order_id} ({amount})",
-            owner_team="finance",
-            priority=Priority.HIGH,
-            subject_type="order",
-            subject_id=order_id,
-            now=now,
-            details={"customer_id": order.customer_id, "requested": str(amount), "breaches": breaches},
-        )
-        return {"order_id": order_id, "amount": str(amount), "decision": "pending_review",
-                "task_id": task.task_id, "breaches": breaches}
 
     # --- Personalization ----------------------------------------------------
 

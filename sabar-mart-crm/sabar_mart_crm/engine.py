@@ -16,7 +16,7 @@ from . import config
 from .affiliates import AffiliateManager
 from .customers import CustomerManager
 from .escalation import EscalationEngine
-from .models import Order, OrderStatus, SupportTicket, money, to_jsonable
+from .models import Order, OrderStatus, Priority, Refund, RefundStatus, SupportTicket, money, to_jsonable
 from .rbac import Permission, Role, has_permission, mask_pii, require, require_team
 from .store import Store
 from .vendors import VendorManager
@@ -50,14 +50,92 @@ class CRMEngine:
         self.vendors.evaluate(order.vendor_id, now)
         return {"order_id": order_id, "loyalty_triggers": triggers}
 
-    def return_order(self, order_id: str, now: datetime) -> None:
+    def return_order(self, order_id: str, now: datetime, actor: str = "system") -> None:
+        """Physical return inside the window: refunds whatever has not been refunded yet."""
         order = self.store.orders[order_id]
         if order.delivered_at and now - order.delivered_at > timedelta(days=config.RETURN_WINDOW_DAYS):
             raise ValueError(f"order {order_id}: return window of {config.RETURN_WINDOW_DAYS} days has closed")
-        order = self._transition(order_id, {OrderStatus.DELIVERED}, OrderStatus.RETURNED)
-        self.vendors.record_return(order, now)
-        self.customers.revoke_loyalty(order)
+        if order.status != OrderStatus.DELIVERED:
+            raise ValueError(f"order {order_id}: cannot move {order.status.value} -> returned")
+        self._reject_pending_refunds(order_id, "order returned", actor, now)
+        if order.net_amount > 0:
+            refund = self._new_refund(order, order.net_amount, "order returned", actor, now)
+            self._apply_refund(refund, actor, now)
+        order.status = OrderStatus.RETURNED
         self.vendors.evaluate(order.vendor_id, now)
+
+    # --- Refunds ----------------------------------------------------------------------
+
+    def request_refund(self, order_id: str, amount: Decimal, reason: str, requested_by: str,
+                       now: datetime) -> Refund:
+        """Refund part or all of a delivered order. Over the standard limit it waits for finance approval."""
+        order = self.store.orders[order_id]
+        if order.status != OrderStatus.DELIVERED:
+            raise ValueError(f"order {order_id}: only delivered orders can be refunded "
+                             f"(status {order.status.value}; cancel undelivered orders instead)")
+        amount = money(amount)
+        pending = sum((r.amount for r in self.store.find("refunds", order_id=order_id)
+                       if r.status == RefundStatus.PENDING), Decimal(0))
+        if amount > order.net_amount - pending:
+            raise ValueError(f"order {order_id}: refund {amount} exceeds refundable "
+                             f"{money(order.net_amount - pending)} (incl. pending refunds)")
+        refund = self._new_refund(order, amount, reason, requested_by, now)
+        if amount > config.STANDARD_REFUND_LIMIT:
+            task = self.escalations.raise_task(
+                rule="refund_exceeds_limit",
+                title=f"Refund review: {refund.refund_id} on order {order_id} ({amount})",
+                owner_team="finance",
+                priority=Priority.HIGH,
+                subject_type="refund",
+                subject_id=refund.refund_id,
+                now=now,
+                details={"order_id": order_id, "customer_id": order.customer_id, "requested": str(amount),
+                         "requested_by": requested_by,
+                         "breaches": [f"exceeds standard limit {config.STANDARD_REFUND_LIMIT}"]},
+            )
+            refund.task_id = task.task_id
+        else:
+            self._apply_refund(refund, "auto", now)
+        return refund
+
+    def decide_refund(self, refund_id: str, approve: bool, actor: str, now: datetime) -> Refund:
+        refund = self.store.refunds[refund_id]
+        if refund.status != RefundStatus.PENDING:
+            raise ValueError(f"refund {refund_id} is already {refund.status.value}")
+        if refund.requested_by == actor:
+            raise ValueError(f"refund {refund_id}: the requester cannot approve or reject their own refund")
+        if approve:
+            order = self.store.orders[refund.order_id]
+            if order.status != OrderStatus.DELIVERED or refund.amount > order.net_amount:
+                raise ValueError(f"refund {refund_id}: order {order.order_id} can no longer be refunded "
+                                 f"{refund.amount} (refundable {order.net_amount}, status {order.status.value})")
+            self._apply_refund(refund, actor, now)
+        else:
+            refund.status, refund.decided_by, refund.decided_at = RefundStatus.REJECTED, actor, now
+        if refund.task_id and refund.task_id in self.store.tasks:
+            self.escalations.resolve(refund.task_id)
+        return refund
+
+    def _new_refund(self, order: Order, amount: Decimal, reason: str, requested_by: str, now: datetime) -> Refund:
+        refund = Refund(f"RF-{self.store.next_id('refund'):06d}", order.order_id, order.customer_id,
+                        order.vendor_id, money(amount), reason, requested_by, now, RefundStatus.PENDING)
+        self.store.refunds[refund.refund_id] = refund
+        return refund
+
+    def _apply_refund(self, refund: Refund, actor: str, now: datetime) -> None:
+        order = self.store.orders[refund.order_id]
+        before = order.net_amount
+        self.vendors.apply_refund(order, refund.amount, now)
+        self.customers.revoke_loyalty(order.customer_id, before, order.net_amount)
+        refund.status, refund.decided_by, refund.decided_at = RefundStatus.APPROVED, actor, now
+
+    def _reject_pending_refunds(self, order_id: str, reason: str, actor: str, now: datetime) -> None:
+        for refund in self.store.find("refunds", order_id=order_id):
+            if refund.status == RefundStatus.PENDING:
+                refund.status, refund.decided_by, refund.decided_at = RefundStatus.REJECTED, actor, now
+                refund.reason = f"{refund.reason} [superseded: {reason}]"
+                if refund.task_id and refund.task_id in self.store.tasks:
+                    self.escalations.resolve(refund.task_id)
 
     def cancel_order(self, order_id: str, now: datetime) -> None:
         order = self._transition(order_id, {OrderStatus.PLACED}, OrderStatus.CANCELLED)
@@ -135,9 +213,11 @@ class CRMEngine:
         require(role, Permission.VIEW_GLOBAL_ANALYTICS)
         orders = list(self.store.orders.values())
         status_counts = Counter(o.status.value for o in orders)
-        gmv = money(sum((o.amount for o in orders if o.status == OrderStatus.DELIVERED), Decimal(0)))
-        commission = money(-sum((e.amount for e in self.store.ledger.values()
-                                 if e.kind in ("commission", "commission_reversal")), Decimal(0)))
+        gmv = money(sum((o.net_amount for o in orders if o.status == OrderStatus.DELIVERED), Decimal(0)))
+        ledger = list(self.store.ledger.values())
+
+        def withheld(kind: str) -> Decimal:
+            return money(-sum((e.amount for e in ledger if e.kind in (kind, f"{kind}_reversal")), Decimal(0)))
         stages = Counter(self.customers.lifecycle_stage(c, now).value for c in self.store.customers)
         attributed = [o for o in orders if o.order_id in self.store.attributions]
         return to_jsonable({
@@ -145,14 +225,19 @@ class CRMEngine:
             "customers": {"total": len(self.store.customers), "by_lifecycle_stage": dict(stages),
                           "abandoned_carts": len(self.customers.abandoned_carts(now))},
             "orders": {"total": len(orders), "by_status": dict(status_counts)},
-            "revenue": {"gmv_delivered": gmv, "marketplace_commission_net": commission},
+            "revenue": {"gmv_delivered_net_of_refunds": gmv,
+                        "marketplace_commission_net": withheld("commission"),
+                        "gst_on_commission": withheld("commission_gst"),
+                        "tcs_withheld": withheld("tcs"),
+                        "tds_withheld": withheld("tds")},
+            "refunds_pending_review": sum(r.status == RefundStatus.PENDING for r in self.store.refunds.values()),
             "vendors": {"total": len(self.store.vendors),
                         "verified": sum(v.verification_status.value == "verified" for v in self.store.vendors.values()),
                         "flagged": [v.vendor_id for v in self.store.vendors.values() if v.is_flagged]},
             "affiliates": {"total": len(self.store.affiliates),
                            "approved": sum(a.approved for a in self.store.affiliates.values()),
                            "attributed_orders": len(attributed),
-                           "attributed_sales": money(sum((o.amount for o in attributed), Decimal(0)))},
+                           "attributed_sales": money(sum((o.net_amount for o in attributed), Decimal(0)))},
             "support": {"tickets": len(self.store.tickets),
                         "by_priority": dict(Counter(t.priority.value for t in self.store.tickets.values()))},
             "open_tasks": sum(t.status.value != "resolved" for t in self.escalations.tasks.values()),

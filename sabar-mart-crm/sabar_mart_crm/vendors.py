@@ -13,6 +13,10 @@ from .store import Store
 
 DOC_PENDING, DOC_APPROVED, DOC_REJECTED = "pending", "approved", "rejected"
 
+SALE_COMPONENTS = ("sale", "commission", "commission_gst", "tcs", "tds")
+# Ledger kind used when a refund reverses each sale component ("refund" keeps its historical name).
+REVERSAL_KIND = {"sale": "refund", "refund": "sale", **{k: f"{k}_reversal" for k in SALE_COMPONENTS[1:]}}
+
 
 def _ratio(num: int, den: int) -> Decimal:
     return (Decimal(num) / Decimal(den)).quantize(Decimal("0.0001")) if den else Decimal(0)
@@ -148,28 +152,52 @@ class VendorManager:
         return entry
 
     def record_sale(self, order: Order, now: datetime) -> None:
+        """Post the sale and everything withheld from it: commission, GST on commission, TCS and TDS."""
         vendor = self.store.vendors[order.vendor_id]
-        self._post(order.vendor_id, "sale", order.amount, now, order.order_id)
-        self._post(order.vendor_id, "commission", -(order.amount * vendor.commission_rate), now, order.order_id)
+        commission = money(order.amount * vendor.commission_rate)
+        pan_verified = vendor.documents.get("pan_card") == DOC_APPROVED
+        tds_rate = config.TDS_194O_RATE if pan_verified else config.TDS_194O_NO_PAN_RATE
+        for kind, amount in (
+            ("sale", order.amount),
+            ("commission", -commission),
+            ("commission_gst", -(commission * config.GST_ON_COMMISSION_RATE)),
+            ("tcs", -(order.amount * config.GST_TCS_RATE)),
+            ("tds", -(order.amount * tds_rate)),
+        ):
+            self._post(order.vendor_id, kind, amount, now, order.order_id)
 
-    def record_return(self, order: Order, now: datetime) -> None:
-        """Reverse the sale and refund the marketplace commission on it."""
-        vendor = self.store.vendors[order.vendor_id]
-        self._post(order.vendor_id, "refund", -order.amount, now, order.order_id)
-        self._post(order.vendor_id, "commission_reversal", order.amount * vendor.commission_rate, now, order.order_id)
+    def apply_refund(self, order: Order, amount: Decimal, now: datetime) -> None:
+        """Refund part or all of a delivered order, reversing each posted component pro rata.
+
+        Reversals are computed on the cumulative refunded amount, so any sequence of partial
+        refunds that adds up to the full order reverses the original entries exactly.
+        """
+        amount = money(amount)
+        if amount <= 0 or amount > order.net_amount:
+            raise ValueError(f"order {order.order_id}: refund {amount} exceeds refundable {order.net_amount}")
+        originals: dict[str, Decimal] = {}
+        for e in self._entries(order.vendor_id):
+            if e.reference == order.order_id and e.kind in SALE_COMPONENTS:
+                originals[e.kind] = originals.get(e.kind, Decimal(0)) + e.amount
+        before, after = order.refunded, order.refunded + amount
+        for kind, original in originals.items():
+            delta = money(original * after / order.amount) - money(original * before / order.amount)
+            if delta:
+                self._post(order.vendor_id, REVERSAL_KIND[kind], -delta, now, order.order_id)
+        order.refunded = after
 
     def _entries(self, vendor_id: str) -> list[LedgerEntry]:
         return self.store.find("ledger", vendor_id=vendor_id)
 
-    def _held_amount(self, vendor_id: str, now: datetime) -> Decimal:
+    def _held_amount(self, entries: list[LedgerEntry], now: datetime) -> Decimal:
         """Net proceeds of delivered orders still inside the return window."""
-        vendor = self.store.vendors[vendor_id]
-        held = Decimal(0)
-        for order in self.store.orders_for_vendor(vendor_id):
-            if (order.status == OrderStatus.DELIVERED and order.delivered_at
+        open_orders = set()
+        for e in entries:
+            order = self.store.orders.get(e.reference) if e.kind == "sale" else None
+            if (order and order.status == OrderStatus.DELIVERED and order.delivered_at
                     and now - order.delivered_at < timedelta(days=config.RETURN_WINDOW_DAYS)):
-                held += order.amount * (1 - vendor.commission_rate)
-        return money(held)
+                open_orders.add(order.order_id)
+        return money(sum((e.amount for e in entries if e.reference in open_orders), Decimal(0)))
 
     def ledger_summary(self, vendor_id: str, now: datetime) -> dict[str, Any]:
         entries = self._entries(vendor_id)
@@ -177,8 +205,11 @@ class VendorManager:
         def total(*kinds: str) -> Decimal:
             return money(sum((e.amount for e in entries if e.kind in kinds), Decimal(0)))
 
+        def net_withheld(kind: str) -> Decimal:
+            return -total(kind, REVERSAL_KIND[kind])
+
         balance = money(sum((e.amount for e in entries), Decimal(0)))
-        held = min(self._held_amount(vendor_id, now), max(balance, Decimal(0)))
+        held = min(self._held_amount(entries, now), max(balance, Decimal(0)))
         payouts = [e for e in entries if e.kind == "payout"]
         last_payout = max((e.created_at for e in payouts), default=None)
         next_payout = last_payout + timedelta(days=config.PAYOUT_CYCLE_DAYS) if last_payout else now
@@ -186,7 +217,10 @@ class VendorManager:
             "vendor_id": vendor_id,
             "gross_sales": total("sale"),
             "refunds": -total("refund"),
-            "commission_deducted": -(total("commission") + total("commission_reversal")),
+            "commission_deducted": net_withheld("commission"),
+            "gst_on_commission": net_withheld("commission_gst"),
+            "tcs_withheld": net_withheld("tcs"),
+            "tds_withheld": net_withheld("tds"),
             "paid_out": -total("payout"),
             "outstanding_balance": balance,
             "held_in_return_window": held,
@@ -194,6 +228,38 @@ class VendorManager:
             "last_payout_at": last_payout,
             "next_payout_due": next_payout,
         }
+
+    def tax_report(self, period_start: datetime, period_end: datetime) -> dict[str, Any]:
+        """Per-vendor amounts for TCS (GSTR-8) and TDS (194-O) filings, by ledger posting date."""
+        rows = []
+        for vendor_id in self.store.vendors:
+            entries = [e for e in self._entries(vendor_id) if period_start <= e.created_at < period_end]
+
+            def net(kind: str) -> Decimal:
+                return money(sum((e.amount for e in entries if e.kind in (kind, REVERSAL_KIND[kind])), Decimal(0)))
+
+            def total(kind: str) -> Decimal:
+                return money(sum((e.amount for e in entries if e.kind == kind), Decimal(0)))
+
+            row = {
+                "vendor_id": vendor_id,
+                "gross_sales": total("sale"),
+                "refunds": -total("refund"),
+                "net_taxable_value": net("sale"),  # sales minus refunds
+                "tcs_collected": -net("tcs"),
+                "tds_deducted": -net("tds"),
+                "commission_earned": -net("commission"),
+                "gst_on_commission": -net("commission_gst"),
+            }
+            if any(row[k] for k in row if k != "vendor_id"):
+                rows.append(row)
+        totals = {k: money(sum((r[k] for r in rows), Decimal(0))) for k in
+                  ("gross_sales", "refunds", "net_taxable_value", "tcs_collected", "tds_deducted",
+                   "commission_earned", "gst_on_commission")}
+        return {"period": {"start": period_start, "end": period_end}, "vendors": rows, "totals": totals,
+                "rates": {"gst_tcs": config.GST_TCS_RATE, "tds_194o": config.TDS_194O_RATE,
+                          "tds_194o_no_pan": config.TDS_194O_NO_PAN_RATE,
+                          "gst_on_commission": config.GST_ON_COMMISSION_RATE}}
 
     def run_payout(self, vendor_id: str, now: datetime) -> dict[str, Any]:
         summary = self.ledger_summary(vendor_id, now)

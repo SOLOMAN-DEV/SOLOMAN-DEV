@@ -80,7 +80,7 @@ def seed(now: datetime, crm: CRMEngine | None = None) -> CRMEngine:
     crm.submit_ticket(SupportTicket("T-2", "C-1", "Delivery question", "Thanks! When will my order ship?", now), now)
     crm.submit_ticket(SupportTicket("T-3", "C-3", "Unauthorized charge",
                                     "I see an unauthorized payment on my card, account may be hacked", now), now)
-    crm.customers.request_refund("O-2", Decimal("18000"), now)
+    crm.request_refund("O-2", Decimal("18000"), "item damaged in transit", "support-demo", now)
     return crm
 
 

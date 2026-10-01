@@ -8,7 +8,17 @@ from typing import Any
 
 from . import config
 from .escalation import EscalationEngine
-from .models import Affiliate, Attribution, MarketingAsset, Order, OrderStatus, Priority, ReferralClick, money
+from .models import (
+    Affiliate,
+    AffiliatePayout,
+    Attribution,
+    MarketingAsset,
+    Order,
+    OrderStatus,
+    Priority,
+    ReferralClick,
+    money,
+)
 from .store import Store
 
 DUPLICATE_CLICK_WINDOW = timedelta(hours=24)
@@ -95,35 +105,88 @@ class AffiliateManager:
 
     # --- Commission calculation -----------------------------------------------
 
+    def _completed(self, order: Order, now: datetime) -> bool:
+        """Delivered and past the return window (a later return is no longer possible)."""
+        return (order.status in (OrderStatus.DELIVERED, OrderStatus.RETURNED) and order.delivered_at is not None
+                and now - order.delivered_at >= timedelta(days=config.RETURN_WINDOW_DAYS))
+
+    def lifetime_tier(self, affiliate_id: str, now: datetime) -> tuple[str, Decimal]:
+        """Tier from all completed, non-refunded referred orders to date."""
+        count_ = sum(1 for rec in self.store.find("attributions", affiliate_id=affiliate_id)
+                     if self._completed(order := self.store.orders[rec.order_id], now) and order.net_amount > 0)
+        return tier_for(count_)
+
+    def _earned(self, rec: Attribution, order: Order, current_rate: Decimal) -> Decimal:
+        rate = rec.commission_rate if rec.commission_rate is not None else current_rate
+        return money(order.net_amount * rate)
+
+    def payout_preview(self, affiliate_id: str, now: datetime) -> dict[str, Any]:
+        """What a payout run would pay now: new commission plus clawbacks on refunds of paid orders."""
+        tier, rate = self.lifetime_tier(affiliate_id, now)
+        lines = []
+        for rec in self.store.find("attributions", affiliate_id=affiliate_id):
+            order = self.store.orders[rec.order_id]
+            if not self._completed(order, now):
+                continue
+            due = self._earned(rec, order, rate) - rec.commission_paid
+            if due:
+                lines.append({"order_id": order.order_id, "net_sales": str(money(order.net_amount)),
+                              "commission": str(due), "kind": "commission" if due > 0 else "clawback"})
+        lines.sort(key=lambda line: line["order_id"])
+        total = money(sum((Decimal(line["commission"]) for line in lines), Decimal(0)))
+        return {"affiliate_id": affiliate_id, "tier": tier, "commission_rate": rate, "amount": total,
+                "lines": lines}
+
+    def run_payout(self, affiliate_id: str, actor: str, now: datetime) -> dict[str, Any]:
+        affiliate = self.store.affiliates[affiliate_id]
+        if not affiliate.approved:
+            return {"affiliate_id": affiliate_id, "status": "blocked", "reason": "affiliate not approved"}
+        preview = self.payout_preview(affiliate_id, now)
+        if preview["amount"] <= 0:
+            # Clawbacks larger than new commission carry forward to the next run.
+            return {"affiliate_id": affiliate_id, "status": "nothing_payable", "net_due": preview["amount"]}
+        payout = AffiliatePayout(f"AP-{self.store.next_id('affiliate_payout'):06d}", affiliate_id, now, actor,
+                                 preview["tier"], preview["commission_rate"], preview["amount"], preview["lines"])
+        for line in preview["lines"]:
+            rec = self.store.attributions[line["order_id"]]
+            if rec.commission_rate is None:
+                rec.commission_rate = preview["commission_rate"]
+            rec.commission_paid += Decimal(line["commission"])
+        self.store.affiliate_payouts[payout.payout_id] = payout
+        return {"affiliate_id": affiliate_id, "status": "paid", "payout_id": payout.payout_id,
+                "amount": payout.amount, "tier": payout.tier, "lines": payout.lines}
+
     def commission_statement(self, affiliate_id: str, period_start: datetime, period_end: datetime,
                              now: datetime) -> dict[str, Any]:
-        """Commission on orders placed in the period whose return window has closed."""
+        """Commission on referred orders placed in the period, split into paid and outstanding."""
+        tier, rate = self.lifetime_tier(affiliate_id, now)
         completed, pending, voided = [], [], []
         for rec in self.store.find("attributions", affiliate_id=affiliate_id):
             order = self.store.orders[rec.order_id]
             if not period_start <= order.placed_at < period_end:
                 continue
-            if order.status in (OrderStatus.RETURNED, OrderStatus.CANCELLED):
-                voided.append(order)
-            elif (order.status == OrderStatus.DELIVERED and order.delivered_at
-                  and now - order.delivered_at >= timedelta(days=config.RETURN_WINDOW_DAYS)):
-                completed.append(order)
+            if order.status == OrderStatus.CANCELLED or order.net_amount <= 0:
+                voided.append((rec, order))
+            elif self._completed(order, now):
+                completed.append((rec, order))
             else:
-                pending.append(order)
+                pending.append((rec, order))
 
-        tier, rate = tier_for(len(completed))
-        eligible = money(sum((o.amount for o in completed), Decimal(0)))
+        earned = money(sum((self._earned(rec, o, rate) for rec, o in completed), Decimal(0)))
+        paid = money(sum((rec.commission_paid for rec, _ in completed + voided), Decimal(0)))
         return {
             "affiliate_id": affiliate_id,
             "period": {"start": period_start, "end": period_end},
             "tier": tier,
             "commission_rate": rate,
             "completed_orders": len(completed),
-            "eligible_sales": eligible,
-            "commission_payable": money(eligible * rate),
-            "pending_orders": [o.order_id for o in pending],
-            "pending_sales": money(sum((o.amount for o in pending), Decimal(0))),
-            "voided_orders": [o.order_id for o in voided],
+            "eligible_sales": money(sum((o.net_amount for _, o in completed), Decimal(0))),
+            "commission_payable": earned,
+            "commission_paid": paid,
+            "commission_outstanding": earned - paid,
+            "pending_orders": [o.order_id for _, o in pending],
+            "pending_sales": money(sum((o.net_amount for _, o in pending), Decimal(0))),
+            "voided_orders": [o.order_id for _, o in voided],
         }
 
     # --- Asset distribution ---------------------------------------------------

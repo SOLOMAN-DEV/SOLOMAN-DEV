@@ -127,11 +127,11 @@ class APITests(unittest.TestCase):
         self.seed_customer()
         self.complete_order("O-1", "2000.00")
         ledger = self.call("GET", "/vendors/V-1/ledger", "k-finance")
-        self.assertEqual((ledger["payable_now"], ledger["held_in_return_window"]), ("0.00", "1800.00"))
+        self.assertEqual((ledger["payable_now"], ledger["held_in_return_window"]), ("0.00", "1752.00"))
         self.clock.advance(days=config.RETURN_WINDOW_DAYS + 1)
         self.call("POST", "/orders/O-1/return", "k-system", 409)  # window closed
         payout = self.call("POST", "/vendors/V-1/payouts", "k-finance")
-        self.assertEqual((payout["status"], payout["amount"]), ("paid", "1800.00"))
+        self.assertEqual((payout["status"], payout["amount"]), ("paid", "1752.00"))
         self.call("POST", "/vendors/V-1/payouts", "k-vendor", 403)
 
     def test_tickets_refunds_and_tasks(self):
@@ -144,13 +144,17 @@ class APITests(unittest.TestCase):
         self.assertEqual(routed["priority"], "critical")
         self.assertEqual(self.call("GET", "/tickets", "k-support")[0]["ticket_id"], "T-1")
 
-        refund = self.call("POST", "/orders/O-1/refunds", "k-support", json={"amount": "15000"})
-        self.assertEqual(refund["decision"], "pending_review")
+        refund = self.call("POST", "/orders/O-1/refunds", "k-support", 201,
+                           json={"amount": "15000", "reason": "damaged on arrival"})
+        self.assertEqual(refund["status"], "pending_review")
         tasks = self.call("GET", "/tasks", "k-finance", params={"team": "finance"})
         self.assertEqual(tasks[0]["rule"], "refund_exceeds_limit")
         self.call("POST", f"/tasks/{tasks[0]['task_id']}/resolve", "k-support", 403)  # wrong team
-        self.assertEqual(self.call("POST", f"/tasks/{tasks[0]['task_id']}/resolve", "k-finance")["status"], "resolved")
+        self.call("POST", f"/refunds/{refund['refund_id']}/approve", "k-support", 403)
+        approved = self.call("POST", f"/refunds/{refund['refund_id']}/approve", "k-finance")
+        self.assertEqual((approved["status"], approved["decided_by"]), ("approved", "env-finance-4"))
         self.assertEqual(self.call("GET", "/tasks", "k-finance", params={"team": "finance"}), [])
+        self.assertEqual(self.call("GET", "/vendors/V-1/ledger", "k-finance")["refunds"], "15000.00")
 
     def test_low_reviews_flag_vendor(self):
         self.seed_vendor()
@@ -184,12 +188,77 @@ class APITests(unittest.TestCase):
         self.call("POST", "/affiliates/A-1/assets/AS-1", "k-affiliate", 409)  # Bronze affiliate
         self.assertEqual(self.call("GET", "/affiliates/A-1", "k-marketing")["email"], "r***@example.com")
 
+    def test_users_and_audit(self):
+        created = self.call("POST", "/users", "k-admin", 201, json={"username": "priya", "role": "finance"})
+        key = created["api_key"]
+        self.call("POST", "/users", "k-admin", 409, json={"username": "priya", "role": "finance"})
+        self.call("POST", "/users", "k-finance", 403, json={"username": "eve", "role": "admin"})
+        self.assertNotIn("key_hash", self.call("GET", "/users", "k-admin")[0])
+        me = self.call("GET", "/me", key)
+        self.assertEqual((me["user"], me["role"]), ("priya", "finance"))
+
+        self.seed_vendor()
+        self.call("GET", "/vendors/V-1/ledger", key)          # sensitive read: audited
+        self.call("GET", "/vendors/V-1", key)                 # ordinary read: not audited
+        self.call("GET", "/analytics", key, 403)              # denied: audited
+
+        rotated = self.call("POST", "/users/priya/rotate-key", "k-admin")["api_key"]
+        self.assertEqual(self.client.get("/me", headers=auth(key)).status_code, 401)
+        self.call("POST", "/users/priya/deactivate", "k-admin")
+        self.assertEqual(self.client.get("/me", headers=auth(rotated)).status_code, 401)
+
+        log = self.call("GET", "/audit", "k-admin", params={"actor": "priya"})
+        self.assertEqual([(e["method"], e["path"], e["outcome"]) for e in log],
+                         [("GET", "/analytics", "denied"), ("GET", "/vendors/V-1/ledger", "success")])
+        recent = self.call("GET", "/audit", "k-admin", params={"limit": 3})
+        self.assertEqual(recent[0]["path"], "/audit")  # reading the audit log is itself audited
+        self.assertEqual((recent[1]["path"], recent[1]["actor"]), ("/users/priya/deactivate", "env-admin-2"))
+        self.call("GET", "/audit", "k-finance", 403)
+
+    def test_failed_change_is_audited(self):
+        self.seed_customer()
+        self.call("POST", "/orders/NOPE/ship", "k-system", 404, json={})
+        log = self.call("GET", "/audit", "k-admin", params={"limit": 2})
+        self.assertEqual((log[0]["path"], log[0]["outcome"]), ("/orders/NOPE/ship", "not_found"))
+
+    def test_affiliate_payout_api(self):
+        self.seed_vendor()
+        self.seed_customer()
+        self.call("POST", "/affiliates", "k-affiliate", 201,
+                  json={"affiliate_id": "A-1", "name": "Riya", "email": "riya@example.com", "referral_code": "RIYA10"})
+        self.call("POST", "/affiliates/A-1/approve", "k-affiliate", 204)
+        self.call("POST", "/referrals/clicks", "k-system",
+                  json={"referral_code": "RIYA10", "product_id": "P-1", "visitor_fingerprint": "fp"})
+        self.complete_order("O-1", "1000.00", ref="RIYA10")
+        self.clock.advance(days=config.RETURN_WINDOW_DAYS + 1)
+        self.assertEqual(self.call("GET", "/affiliates/A-1/payout-preview", "k-finance")["amount"], "30.00")
+        self.call("POST", "/affiliates/A-1/payouts", "k-affiliate", 403)
+        paid = self.call("POST", "/affiliates/A-1/payouts", "k-finance")
+        self.assertEqual((paid["status"], paid["amount"]), ("paid", "30.00"))
+        self.assertEqual(self.call("POST", "/affiliates/A-1/payouts", "k-finance")["status"], "nothing_payable")
+        history = self.call("GET", "/affiliates/A-1/payouts", "k-finance")
+        self.assertEqual([(p["amount"], p["run_by"]) for p in history], [("30.00", "env-finance-4")])
+        tax = self.call("GET", "/finance/tax-report", "k-finance")
+        self.assertEqual(tax["totals"]["tcs_collected"], "5.00")
+
+    def test_refund_listing_and_validation(self):
+        self.seed_vendor()
+        self.seed_customer()
+        self.complete_order("O-1", "500.00")
+        self.call("POST", "/orders/O-1/refunds", "k-support", 409, json={"amount": "600", "reason": "too much"})
+        r = self.call("POST", "/orders/O-1/refunds", "k-support", 201, json={"amount": "100", "reason": "scuffed"})
+        self.assertEqual((r["status"], r["decided_by"], r["requested_by"]), ("approved", "auto", "env-support_agent-3"))
+        listed = self.call("GET", "/refunds", "k-finance", params={"status": "approved"})
+        self.assertEqual([x["refund_id"] for x in listed], [r["refund_id"]])
+        self.call("GET", "/refunds", "k-marketing", 403)
+
     def test_analytics(self):
         self.seed_vendor()
         self.seed_customer()
         self.complete_order("O-1")
         data = self.call("GET", "/analytics", "k-admin")
-        self.assertEqual(data["revenue"]["gmv_delivered"], "1000.00")
+        self.assertEqual(data["revenue"]["gmv_delivered_net_of_refunds"], "1000.00")
+        self.assertEqual(data["revenue"]["tcs_withheld"], "5.00")
         self.assertEqual(data["vendors"]["verified"], 1)
 
 

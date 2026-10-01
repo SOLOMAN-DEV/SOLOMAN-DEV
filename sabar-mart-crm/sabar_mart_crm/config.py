@@ -18,11 +18,20 @@ LOYALTY_MILESTONES = (100, 500, 1000)  # point balances that fire a reward trigg
 STANDARD_REFUND_LIMIT = Decimal("10000.00")
 
 # --- Vendor management ---------------------------------------------------
-REQUIRED_VENDOR_DOCUMENTS = ("business_registration", "tax_id", "bank_details", "identity_proof")
+REQUIRED_VENDOR_DOCUMENTS = ("business_registration", "tax_id", "pan_card", "bank_details", "identity_proof")
 STORE_SETUP_MILESTONES = ("profile_completed", "first_product_listed", "shipping_configured", "payout_account_linked")
 
 DEFAULT_COMMISSION_RATE = Decimal("0.10")  # Sabar Mart marketplace take rate
 PAYOUT_CYCLE_DAYS = 7
+
+# --- Indian marketplace tax withholding on vendor payouts ----------------
+# !! Confirm every rate and its base with your Chartered Accountant before go-live. !!
+# Defaults reflect the rates as amended by Budget 2024 (in force from Oct 2024):
+GST_ON_COMMISSION_RATE = Decimal("0.18")  # GST charged on Sabar Mart's commission (services)
+GST_TCS_RATE = Decimal("0.005")           # TCS, CGST Act s.52 (0.25% CGST + 0.25% SGST, or 0.5% IGST)
+TDS_194O_RATE = Decimal("0.001")          # TDS, Income-tax Act s.194-O, vendor with PAN on file
+TDS_194O_NO_PAN_RATE = Decimal("0.05")    # s.206AA: higher rate when the vendor's PAN is not verified
+# Base for TCS/TDS: the order amount is treated as the taxable value (prices exclusive of GST).
 
 MIN_REVIEW_SCORE = Decimal("3.5")
 MIN_FULFILLMENT_RATE = Decimal("0.95")

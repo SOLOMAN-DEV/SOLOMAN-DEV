@@ -14,6 +14,7 @@ never receives a success for a write that was not saved.
 
 import functools
 import hmac
+from dataclasses import dataclass
 import inspect
 import os
 from collections.abc import Callable, Mapping
@@ -21,7 +22,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Annotated, Any
 
-from fastapi import Depends, FastAPI, HTTPException, Request, status
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
 from fastapi.responses import JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
@@ -29,6 +30,7 @@ from pydantic import BaseModel, Field
 from . import config
 from .engine import CRMEngine
 from .models import (
+    AuditEntry,
     Affiliate,
     Customer,
     MarketingAsset,
@@ -37,6 +39,7 @@ from .models import (
     Vendor,
     to_jsonable,
 )
+from . import users
 from .db import MemoryBackend, SQLBackend, StorageBusy, backend_from_env
 from .rbac import AccessDenied, Permission, Role, has_permission, mask_pii, require, require_team
 from .store import Product
@@ -53,15 +56,31 @@ def utc_now() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
-def parse_api_keys(raw: str) -> dict[str, Role]:
-    """Parse ``key:role,key:role`` into a key -> Role map."""
-    keys: dict[str, Role] = {}
-    for pair in filter(None, (p.strip() for p in raw.split(","))):
-        key, sep, role = pair.rpartition(":")
-        if not sep or not key:
-            raise ValueError(f"malformed API key entry (expected key:role): {pair!r}")
-        keys[key] = Role(role)
+@dataclass(frozen=True)
+class Actor:
+    name: str
+    role: Role
+
+
+def parse_api_keys(raw: str) -> dict[str, Actor]:
+    """Parse ``key:role[:name],...`` into a key -> Actor map.
+
+    These environment keys are meant for bootstrap and service accounts (e.g. the storefront).
+    People should get their own database keys (``python -m sabar_mart_crm.db user-add``).
+    """
+    keys: dict[str, Actor] = {}
+    for n, entry in enumerate(filter(None, (p.strip() for p in raw.split(","))), start=1):
+        parts = entry.split(":")
+        if len(parts) not in (2, 3) or not parts[0]:
+            raise ValueError(f"malformed API key entry #{n} (expected key:role or key:role:name)")
+        role = Role(parts[1])
+        keys[parts[0]] = Actor(parts[2] if len(parts) == 3 else f"env-{role.value}-{n}", role)
     return keys
+
+
+def _as_actors(api_keys: Mapping[str, Role | Actor]) -> dict[str, Actor]:
+    return {k: v if isinstance(v, Actor) else Actor(f"env-{Role(v).value}-{n}", Role(v))
+            for n, (k, v) in enumerate(api_keys.items(), start=1)}
 
 
 # --- Request bodies ----------------------------------------------------------
@@ -102,6 +121,12 @@ class ShipIn(BaseModel):
 
 class RefundIn(BaseModel):
     amount: Decimal = MONEY
+    reason: str = Field(min_length=3, max_length=500)
+
+
+class UserIn(BaseModel):
+    username: str = Field(pattern=users.USERNAME_RE.pattern)
+    role: Role
 
 
 class TicketIn(BaseModel):
@@ -152,14 +177,14 @@ class AssetIn(BaseModel):
 
 def create_app(
     engine: CRMEngine | None = None,
-    api_keys: Mapping[str, Role] | None = None,
+    api_keys: Mapping[str, Role | Actor] | None = None,
     clock: Clock = utc_now,
     backend: MemoryBackend | SQLBackend | None = None,
 ) -> FastAPI:
     """Build the app. Storage: ``backend`` if given, else ``engine`` in memory, else from ``DATABASE_URL``."""
     if backend is None:
         backend = MemoryBackend(engine) if engine is not None else backend_from_env()
-    keys = dict(api_keys) if api_keys is not None else parse_api_keys(os.environ.get("SABAR_CRM_API_KEYS", ""))
+    keys = _as_actors(api_keys) if api_keys is not None else parse_api_keys(os.environ.get("SABAR_CRM_API_KEYS", ""))
     bearer = HTTPBearer(auto_error=False)
 
     docs = os.environ.get("SABAR_CRM_DOCS", "1") == "1"
@@ -168,21 +193,49 @@ def create_app(
         redoc_url="/redoc" if docs else None,
         openapi_url="/openapi.json" if docs else None,
         title="Sabar Mart CRM API",
-        version="1.0.0",
+        version="1.3.0",
         description="REST access to the Sabar Mart CRM engine: customers, vendors, affiliates and internal tasks.",
     )
     app.state.backend = backend
 
-    def tx(fn: Callable[..., Any]) -> Callable[..., Any]:
-        """Run the endpoint inside a backend session; FastAPI sees the signature without ``crm``."""
+    def audit(crm: CRMEngine, request: Request, outcome: str) -> None:
+        actor: Actor | None = getattr(request.state, "actor", None)
+        entry = AuditEntry(f"AUD-{crm.store.next_id('audit'):010d}", clock(),
+                           actor.name if actor else "anonymous", actor.role.value if actor else "-",
+                           request.method, request.url.path, outcome)
+        crm.store.audit[entry.audit_id] = entry
+
+    def tx(fn: Callable[..., Any] | None = None, *, audit_reads: bool = False) -> Any:
+        """Run the endpoint inside one backend session and audit it.
+
+        FastAPI sees the endpoint's signature without ``crm``. Changes (and reads marked
+        ``audit_reads``) are logged in the same transaction; refused or failed requests are
+        logged in a separate one, since their own transaction is rolled back.
+        """
+        if fn is None:
+            return functools.partial(tx, audit_reads=audit_reads)
         sig = inspect.signature(fn)
 
         @functools.wraps(fn)
-        def wrapper(*args: Any, **kwargs: Any) -> Any:
-            with backend.session() as crm:
-                return fn(crm, *args, **kwargs)
+        def wrapper(*args: Any, _audit_request: Request, **kwargs: Any) -> Any:
+            logged = audit_reads or _audit_request.method != "GET"
+            try:
+                with backend.session() as crm:
+                    result = fn(crm, *args, **kwargs)
+                    if logged:
+                        audit(crm, _audit_request, "success")
+                    return result
+            except (AccessDenied, HTTPException, ValueError) as exc:
+                code = 403 if isinstance(exc, AccessDenied) else exc.status_code if isinstance(exc, HTTPException) else 409
+                if logged or code == 403:
+                    with backend.session() as crm:
+                        audit(crm, _audit_request, {403: "denied", 404: "not_found", 409: "conflict",
+                                                    422: "invalid"}.get(code, "error"))
+                raise
 
-        wrapper.__signature__ = sig.replace(parameters=[p for n, p in sig.parameters.items() if n != "crm"])
+        params = [p for n, p in sig.parameters.items() if n != "crm"]
+        params.append(inspect.Parameter("_audit_request", inspect.Parameter.KEYWORD_ONLY, annotation=Request))
+        wrapper.__signature__ = sig.replace(parameters=params)
         return wrapper
 
     @app.exception_handler(AccessDenied)
@@ -198,15 +251,28 @@ def create_app(
         # The engine raises ValueError for business-rule violations (bad state transition, closed window...).
         return JSONResponse(status_code=409, content={"detail": str(exc)})
 
-    async def current_role(creds: HTTPAuthorizationCredentials | None = Depends(bearer)) -> Role:
+    def current_role(request: Request, creds: HTTPAuthorizationCredentials | None = Depends(bearer)) -> Role:
+        actor = None
         if creds is not None:
-            for key, role in keys.items():
+            for key, env_actor in keys.items():
                 if hmac.compare_digest(creds.credentials.encode(), key.encode()):
-                    return role
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "invalid or missing API key",
-                            headers={"WWW-Authenticate": "Bearer"})
+                    actor = env_actor
+            if actor is None:
+                user = backend.lookup_user(creds.credentials)
+                if user is not None:
+                    actor = Actor(user.username, Role(user.role))
+        if actor is None:
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "invalid or missing API key",
+                                headers={"WWW-Authenticate": "Bearer"})
+        request.state.actor = actor
+        return actor.role
 
     RoleDep = Annotated[Role, Depends(current_role)]
+
+    def current_actor(request: Request, role: RoleDep) -> Actor:
+        return request.state.actor
+
+    ActorDep = Annotated[Actor, Depends(current_actor)]
 
     def found(mapping: Mapping[str, Any], key: str, kind: str) -> Any:
         if key not in mapping:
@@ -229,8 +295,9 @@ def create_app(
         return {"status": "ok"}
 
     @app.get("/me", tags=["meta"])
-    async def me(role: RoleDep) -> dict[str, Any]:
-        return {"role": role.value, "permissions": sorted(p.value for p in Permission if has_permission(role, p))}
+    async def me(actor: ActorDep) -> dict[str, Any]:
+        return {"user": actor.name, "role": actor.role.value,
+                "permissions": sorted(p.value for p in Permission if has_permission(actor.role, p))}
 
     # --- Customers --------------------------------------------------------------
 
@@ -249,7 +316,7 @@ def create_app(
         return crm.customers.abandoned_carts(clock())
 
     @app.get("/customers/{customer_id}", tags=["customers"])
-    @tx
+    @tx(audit_reads=True)
     def customer_profile(crm: CRMEngine, customer_id: str, role: RoleDep) -> dict[str, Any]:
         require(role, Permission.VIEW_CUSTOMER_PROFILE)
         found(crm.store.customers, customer_id, "customer")
@@ -323,10 +390,10 @@ def create_app(
 
     @app.post("/orders/{order_id}/return", status_code=204, tags=["orders"])
     @tx
-    def return_order(crm: CRMEngine, order_id: str, role: RoleDep) -> None:
-        require(role, Permission.INGEST_EVENTS)
+    def return_order(crm: CRMEngine, order_id: str, actor: ActorDep) -> None:
+        require(actor.role, Permission.INGEST_EVENTS)
         found(crm.store.orders, order_id, "order")
-        crm.return_order(order_id, now=clock())
+        crm.return_order(order_id, now=clock(), actor=actor.name)
 
     @app.post("/orders/{order_id}/cancel", status_code=204, tags=["orders"])
     @tx
@@ -335,12 +402,36 @@ def create_app(
         found(crm.store.orders, order_id, "order")
         crm.cancel_order(order_id, now=clock())
 
-    @app.post("/orders/{order_id}/refunds", tags=["support"])
+    @app.post("/orders/{order_id}/refunds", status_code=201, tags=["refunds"])
     @tx
-    def request_refund(crm: CRMEngine, order_id: str, body: RefundIn, role: RoleDep) -> dict[str, Any]:
-        require(role, Permission.REQUEST_REFUNDS)
+    def request_refund(crm: CRMEngine, order_id: str, body: RefundIn, actor: ActorDep) -> dict[str, Any]:
+        require(actor.role, Permission.REQUEST_REFUNDS)
         found(crm.store.orders, order_id, "order")
-        return crm.customers.request_refund(order_id, body.amount, clock())
+        return to_jsonable(crm.request_refund(order_id, body.amount, body.reason, actor.name, clock()))
+
+    @app.get("/refunds", tags=["refunds"])
+    @tx
+    def list_refunds(crm: CRMEngine, role: RoleDep, status_filter: str | None = Query(None, alias="status"),
+                     order_id: str | None = None) -> list[dict[str, Any]]:
+        if not has_permission(role, Permission.REQUEST_REFUNDS):
+            require(role, Permission.APPROVE_REFUNDS)  # support agents (requesters) and finance (approvers)
+        refunds = crm.store.find("refunds", order_id=order_id) if order_id else crm.store.refunds.values()
+        return to_jsonable(sorted((r for r in refunds if status_filter in (None, r.status.value)),
+                                  key=lambda r: r.refund_id))
+
+    @app.post("/refunds/{refund_id}/approve", tags=["refunds"])
+    @tx
+    def approve_refund(crm: CRMEngine, refund_id: str, actor: ActorDep) -> dict[str, Any]:
+        require(actor.role, Permission.APPROVE_REFUNDS)
+        found(crm.store.refunds, refund_id, "refund")
+        return to_jsonable(crm.decide_refund(refund_id, True, actor.name, clock()))
+
+    @app.post("/refunds/{refund_id}/reject", tags=["refunds"])
+    @tx
+    def reject_refund(crm: CRMEngine, refund_id: str, actor: ActorDep) -> dict[str, Any]:
+        require(actor.role, Permission.APPROVE_REFUNDS)
+        found(crm.store.refunds, refund_id, "refund")
+        return to_jsonable(crm.decide_refund(refund_id, False, actor.name, clock()))
 
     # --- Support -------------------------------------------------------------------
 
@@ -377,7 +468,7 @@ def create_app(
         return crm.vendor_scorecard(role, body.vendor_id)
 
     @app.get("/vendors/payouts", tags=["finance"])
-    @tx
+    @tx(audit_reads=True)
     def vendor_payouts(crm: CRMEngine, role: RoleDep) -> list[dict[str, Any]]:
         return crm.vendor_payout_report(role, clock())
 
@@ -417,7 +508,7 @@ def create_app(
         crm.vendors.add_review(vendor_id, body.score, clock())
 
     @app.get("/vendors/{vendor_id}/ledger", tags=["finance"])
-    @tx
+    @tx(audit_reads=True)
     def vendor_ledger(crm: CRMEngine, vendor_id: str, role: RoleDep) -> dict[str, Any]:
         require(role, Permission.VIEW_VENDOR_LEDGER)
         found(crm.store.vendors, vendor_id, "vendor")
@@ -433,8 +524,7 @@ def create_app(
     # --- Affiliates ----------------------------------------------------------------------
 
     def affiliate_tier(crm: CRMEngine, affiliate_id: str) -> str:
-        now = clock()
-        return crm.affiliates.commission_statement(affiliate_id, datetime.min, datetime.max, now)["tier"]
+        return crm.affiliates.lifetime_tier(affiliate_id, clock())[0]
 
     @app.post("/affiliates", status_code=201, tags=["affiliates"])
     @tx
@@ -445,7 +535,7 @@ def create_app(
         return {"affiliate_id": body.affiliate_id, "approved": False}
 
     @app.get("/affiliates/payouts", tags=["finance"])
-    @tx
+    @tx(audit_reads=True)
     def affiliate_payouts(crm: CRMEngine, role: RoleDep, start: datetime | None = None,
                                 end: datetime | None = None) -> list[dict[str, Any]]:
         return crm.affiliate_payout_report(role, *period(start, end), clock())
@@ -468,7 +558,7 @@ def create_app(
         crm.affiliates.approve(affiliate_id)
 
     @app.get("/affiliates/{affiliate_id}/commission", tags=["finance"])
-    @tx
+    @tx(audit_reads=True)
     def affiliate_commission(crm: CRMEngine, affiliate_id: str, role: RoleDep, start: datetime | None = None,
                                    end: datetime | None = None) -> dict[str, Any]:
         require(role, Permission.VIEW_AFFILIATE_PAYOUTS)
@@ -501,6 +591,80 @@ def create_app(
         if not result["distributed"]:
             raise HTTPException(status.HTTP_409_CONFLICT, result["reason"])
         return result
+
+    @app.get("/affiliates/{affiliate_id}/payout-preview", tags=["finance"])
+    @tx
+    def affiliate_payout_preview(crm: CRMEngine, affiliate_id: str, role: RoleDep) -> dict[str, Any]:
+        require(role, Permission.VIEW_AFFILIATE_PAYOUTS)
+        found(crm.store.affiliates, affiliate_id, "affiliate")
+        return to_jsonable(crm.affiliates.payout_preview(affiliate_id, clock()))
+
+    @app.post("/affiliates/{affiliate_id}/payouts", tags=["finance"])
+    @tx
+    def run_affiliate_payout(crm: CRMEngine, affiliate_id: str, actor: ActorDep) -> dict[str, Any]:
+        require(actor.role, Permission.RUN_PAYOUTS)
+        found(crm.store.affiliates, affiliate_id, "affiliate")
+        return to_jsonable(crm.affiliates.run_payout(affiliate_id, actor.name, clock()))
+
+    @app.get("/affiliates/{affiliate_id}/payouts", tags=["finance"])
+    @tx(audit_reads=True)
+    def list_affiliate_payouts(crm: CRMEngine, affiliate_id: str, role: RoleDep) -> list[dict[str, Any]]:
+        require(role, Permission.VIEW_AFFILIATE_PAYOUTS)
+        found(crm.store.affiliates, affiliate_id, "affiliate")
+        payouts = crm.store.find("affiliate_payouts", affiliate_id=affiliate_id)
+        return to_jsonable(sorted(payouts, key=lambda p: p.payout_id))
+
+    @app.get("/finance/tax-report", tags=["finance"])
+    @tx(audit_reads=True)
+    def tax_report(crm: CRMEngine, role: RoleDep, start: datetime | None = None,
+                   end: datetime | None = None) -> dict[str, Any]:
+        require(role, Permission.VIEW_VENDOR_LEDGER)
+        return to_jsonable(crm.vendors.tax_report(*period(start, end)))
+
+    # --- Users & audit -----------------------------------------------------------------------
+
+    def user_view(u: Any) -> dict[str, Any]:
+        return {"username": u.username, "role": u.role, "active": u.active, "created_at": u.created_at}
+
+    @app.post("/users", status_code=201, tags=["admin"])
+    @tx
+    def create_user(crm: CRMEngine, body: UserIn, role: RoleDep) -> dict[str, Any]:
+        require(role, Permission.MANAGE_USERS)
+        absent(crm.store.users, body.username, "user")
+        key = users.create_user(crm.store, body.username, body.role, clock())
+        return to_jsonable({**user_view(crm.store.users[body.username]), "api_key": key,
+                            "note": "store this key now; it cannot be shown again"})
+
+    @app.get("/users", tags=["admin"])
+    @tx(audit_reads=True)
+    def list_users(crm: CRMEngine, role: RoleDep) -> list[dict[str, Any]]:
+        require(role, Permission.MANAGE_USERS)
+        return to_jsonable([user_view(u) for u in sorted(crm.store.users.values(), key=lambda u: u.username)])
+
+    @app.post("/users/{username}/deactivate", tags=["admin"])
+    @tx
+    def deactivate_user(crm: CRMEngine, username: str, role: RoleDep) -> dict[str, Any]:
+        require(role, Permission.MANAGE_USERS)
+        found(crm.store.users, username, "user")
+        users.deactivate(crm.store, username)
+        return to_jsonable(user_view(crm.store.users[username]))
+
+    @app.post("/users/{username}/rotate-key", tags=["admin"])
+    @tx
+    def rotate_user_key(crm: CRMEngine, username: str, role: RoleDep) -> dict[str, Any]:
+        require(role, Permission.MANAGE_USERS)
+        found(crm.store.users, username, "user")
+        key = users.rotate_key(crm.store, username)
+        return to_jsonable({**user_view(crm.store.users[username]), "api_key": key})
+
+    @app.get("/audit", tags=["admin"])
+    @tx(audit_reads=True)
+    def audit_log(crm: CRMEngine, role: RoleDep, actor: str | None = None, limit: int = 100) -> list[dict[str, Any]]:
+        require(role, Permission.VIEW_AUDIT)
+        limit = max(1, min(limit, 1000))
+        entries = (sorted(crm.store.find("audit", actor=actor), key=lambda e: e.audit_id, reverse=True)[:limit]
+                   if actor else crm.store.recent("audit", limit))
+        return to_jsonable(entries)
 
     # --- Internal tasks & analytics --------------------------------------------------------
 

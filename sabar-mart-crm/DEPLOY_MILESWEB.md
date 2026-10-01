@@ -67,6 +67,14 @@ python -m sabar_mart_crm.db seed      # OPTIONAL: demo data, only works on an em
 ```
 The app also creates any missing tables when it starts. Set `SABAR_CRM_AUTO_MIGRATE=0` to turn that off.
 
+Next, create a personal key for each person who will use the CRM. Each key is printed once, so pass it on securely:
+```bash
+python -m sabar_mart_crm.db user-add yourname admin
+python -m sabar_mart_crm.db user-add priya finance
+python -m sabar_mart_crm.db user-add rahul support_agent
+```
+Keep `SABAR_CRM_API_KEYS` for the storefront's service key only (`…:system:storefront`), and for one emergency admin key if you want one. Everything a person does is then logged under their own name in `GET /audit`.
+
 ### 6. Restart and verify
 Click **Restart** on the app page, then run:
 ```bash
