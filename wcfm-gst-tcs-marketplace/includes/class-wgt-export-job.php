@@ -30,11 +30,63 @@ class WGT_Export_Job {
 		add_action( 'wgt_run_export_job', array( $this, 'run_job' ) );
 		add_action( 'admin_post_wgt_download_export', array( $this, 'handle_download' ) );
 		add_action( 'admin_notices', array( $this, 'maybe_show_queued_notice' ) );
+		add_action( 'admin_notices', array( $this, 'maybe_show_nginx_notice' ) );
+		add_action( 'admin_init', array( $this, 'maybe_dismiss_nginx_notice' ) );
 		add_action( 'wgt_cleanup_exports', array( $this, 'cleanup_expired_files' ) );
 
 		if ( ! wp_next_scheduled( 'wgt_cleanup_exports' ) ) {
 			wp_schedule_event( time() + HOUR_IN_SECONDS, 'daily', 'wgt_cleanup_exports' );
 		}
+	}
+
+	/**
+	 * Best-effort detection from the server's own self-reported software string. Not
+	 * foolproof (a proxy in front of PHP can mask or misreport it), but good enough to warn
+	 * an admin who'd otherwise have no reason to know the .htaccess rule below is a no-op.
+	 */
+	public static function is_nginx() {
+		$software = isset( $_SERVER['SERVER_SOFTWARE'] ) ? (string) $_SERVER['SERVER_SOFTWARE'] : '';
+		return false !== stripos( $software, 'nginx' );
+	}
+
+	/**
+	 * The token check in handle_download() is the real access control regardless of
+	 * webserver — this notice is just making sure an nginx-hosted admin knows the .htaccess
+	 * "Deny from all" in export_dir() does nothing for them, since nginx doesn't read it, and
+	 * gives them the server block to add themselves (PHP can't write nginx config).
+	 */
+	public function maybe_show_nginx_notice() {
+		if ( ! current_user_can( 'manage_woocommerce' ) || ! self::is_nginx() ) {
+			return;
+		}
+		if ( 'yes' === get_option( 'wgt_nginx_notice_dismissed' ) ) {
+			return;
+		}
+		$page = isset( $_GET['page'] ) ? sanitize_key( wp_unslash( $_GET['page'] ) ) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
+		if ( 0 !== strpos( $page, 'wgt-' ) ) {
+			return;
+		}
+		$dismiss_url = wp_nonce_url( add_query_arg( 'wgt_dismiss_nginx_notice', '1' ), 'wgt_dismiss_nginx_notice' );
+		?>
+		<div class="notice notice-warning">
+			<p><strong><?php esc_html_e( 'Export files aren\'t protected on nginx', 'wcfm-gst-tcs' ); ?></strong></p>
+			<p><?php esc_html_e( 'Large CSV exports are written to a folder with a .htaccess "Deny from all" rule, which nginx ignores — the one-time download token is still required either way (the real access control), but the file itself isn\'t blocked at the webserver level on nginx. Add a location block like this to your nginx server config for defense in depth:', 'wcfm-gst-tcs' ); ?></p>
+			<pre style="background:#f6f7f7;padding:8px 12px;overflow-x:auto;">location ~ /wp-content/uploads/wgt-exports/ {
+	deny all;
+}</pre>
+			<p><a href="<?php echo esc_url( $dismiss_url ); ?>"><?php esc_html_e( 'Dismiss this notice', 'wcfm-gst-tcs' ); ?></a></p>
+		</div>
+		<?php
+	}
+
+	public function maybe_dismiss_nginx_notice() {
+		if ( ! isset( $_GET['wgt_dismiss_nginx_notice'] ) || ! current_user_can( 'manage_woocommerce' ) ) {
+			return;
+		}
+		check_admin_referer( 'wgt_dismiss_nginx_notice' );
+		update_option( 'wgt_nginx_notice_dismissed', 'yes' );
+		wp_safe_redirect( remove_query_arg( array( 'wgt_dismiss_nginx_notice', '_wpnonce' ) ) );
+		exit;
 	}
 
 	public static function is_available() {
@@ -186,8 +238,9 @@ class WGT_Export_Job {
 			wp_mkdir_p( $dir );
 		}
 		// Best-effort: blocks directory listing/direct access on Apache. Not effective on
-		// nginx, which ignores .htaccess — the token check in handle_download() is the
-		// real access control either way.
+		// nginx, which ignores .htaccess — the token check in handle_download() is the real
+		// access control either way; maybe_show_nginx_notice() warns an nginx admin that this
+		// particular layer isn't doing anything for them.
 		if ( ! file_exists( $dir . '/.htaccess' ) ) {
 			file_put_contents( $dir . '/.htaccess', "Deny from all\n" ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents
 		}

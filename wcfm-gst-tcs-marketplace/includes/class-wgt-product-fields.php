@@ -23,6 +23,9 @@ class WGT_Product_Fields {
 	 */
 	const GST_SLABS = array( '0', '0.25', '3', '5', '12', '18', '28', '40' );
 
+	/** Slabs GST 2.0 phased out of general use (kept selectable only for legacy items). */
+	const LEGACY_SLABS = array( '12', '28' );
+
 	private static $instance = null;
 
 	public static function instance() {
@@ -87,6 +90,51 @@ class WGT_Product_Fields {
 		$args[] = self::HSN_META;
 
 		return (int) $wpdb->get_var( $wpdb->prepare( $sql, $args ) ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+	}
+
+	/**
+	 * Published products still saved at a GST-2.0-legacy rate (12% or 28%) — not wrong, since
+	 * a residual item can legitimately still be taxed at the old rate, but worth a CA's eyes
+	 * to confirm it wasn't just never reclassified after the September 2025 reform.
+	 *
+	 * @param int $vendor_id Pass 0 for a store-wide count across all vendors.
+	 * @return array{count:int,product_ids:int[]} Count plus up to 50 product IDs for review.
+	 */
+	public static function legacy_rate_products( $vendor_id = 0 ) {
+		global $wpdb;
+
+		$author_clause = '';
+		$args          = array( self::RATE_META );
+		if ( $vendor_id ) {
+			$author_clause = 'AND p.post_author = %d';
+			$args[]        = $vendor_id;
+		}
+
+		$placeholders = implode( ',', array_fill( 0, count( self::LEGACY_SLABS ), '%s' ) );
+		$args         = array_merge( $args, self::LEGACY_SLABS );
+
+		$sql = "SELECT p.ID FROM {$wpdb->posts} p
+			INNER JOIN {$wpdb->postmeta} pm ON pm.post_id = p.ID
+			WHERE p.post_type = 'product' AND p.post_status = 'publish' {$author_clause}
+			AND pm.meta_key = %s AND pm.meta_value IN ({$placeholders})
+			ORDER BY p.ID ASC
+			LIMIT 50";
+
+		$ids = $wpdb->get_col( $wpdb->prepare( $sql, $args ) ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+
+		// A capped LIMIT 50 above keeps the review list usable; the count query below (same
+		// filters, no LIMIT) is what the compliance panel actually displays as the headline
+		// number, since a store could have far more than 50 legacy-rate products.
+		$count_sql  = "SELECT COUNT(*) FROM {$wpdb->posts} p
+			INNER JOIN {$wpdb->postmeta} pm ON pm.post_id = p.ID
+			WHERE p.post_type = 'product' AND p.post_status = 'publish' {$author_clause}
+			AND pm.meta_key = %s AND pm.meta_value IN ({$placeholders})";
+		$count      = (int) $wpdb->get_var( $wpdb->prepare( $count_sql, $args ) ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+
+		return array(
+			'count'       => $count,
+			'product_ids' => array_map( 'absint', $ids ),
+		);
 	}
 
 	public static function get_gst_rate( $product_id ) {
@@ -327,7 +375,14 @@ class WGT_Product_Fields {
 				: '<span style="color:#b32d2e;" title="' . esc_attr__( 'HSN must be exactly 6 digits', 'wcfm-gst-tcs' ) . '">' . esc_html( $hsn ) . ' ⚠</span>';
 		}
 
-		echo wp_kses_post( $hsn_display ) . ' / ' . esc_html( '' !== $rate ? $rate . '%' : '—' );
+		$rate_display = '—';
+		if ( '' !== $rate ) {
+			$rate_display = in_array( (string) $rate, self::LEGACY_SLABS, true )
+				? '<span style="color:#996800;" title="' . esc_attr__( 'A GST-2.0-legacy rate — confirm this is still correct for this product.', 'wcfm-gst-tcs' ) . '">' . esc_html( $rate ) . '% ⚠</span>'
+				: esc_html( $rate ) . '%';
+		}
+
+		echo wp_kses_post( $hsn_display ) . ' / ' . wp_kses_post( $rate_display );
 	}
 
 	/**

@@ -263,6 +263,7 @@ class WGT_Admin_Settings {
 
 	private function render_compliance_health() {
 		$missing_hsn = class_exists( 'WGT_Product_Fields' ) ? WGT_Product_Fields::count_missing_hsn() : 0;
+		$legacy_rate = class_exists( 'WGT_Product_Fields' ) ? WGT_Product_Fields::legacy_rate_products() : array( 'count' => 0 );
 
 		$vendor_ids    = array_unique(
 			array_merge(
@@ -278,7 +279,7 @@ class WGT_Admin_Settings {
 			}
 		}
 
-		if ( 0 === $missing_hsn && 0 === $missing_gstin ) {
+		if ( 0 === $missing_hsn && 0 === $missing_gstin && 0 === $legacy_rate['count'] ) {
 			return;
 		}
 		?>
@@ -309,6 +310,21 @@ class WGT_Admin_Settings {
 					);
 					?>
 					<a href="<?php echo esc_url( admin_url( 'edit.php?post_type=product' ) ); ?>"><?php esc_html_e( 'Review products', 'wcfm-gst-tcs' ); ?></a>
+				</p>
+			<?php endif; ?>
+			<?php if ( $legacy_rate['count'] > 0 ) : ?>
+				<p style="margin:.3em 0;">
+					<?php
+					echo esc_html(
+						sprintf(
+							/* translators: %d: number of published products still at a 12%%/28%% GST rate */
+							_n( '%d published product is still at a GST-2.0-legacy rate (12%% or 28%%).', '%d published products are still at a GST-2.0-legacy rate (12%% or 28%%).', $legacy_rate['count'], 'wcfm-gst-tcs' ),
+							$legacy_rate['count']
+						)
+					);
+					?>
+					<?php esc_html_e( 'Not necessarily wrong — some items do stay at the old rate — but worth a CA confirming each one wasn\'t simply missed during reclassification.', 'wcfm-gst-tcs' ); ?>
+					<a href="<?php echo esc_url( admin_url( 'admin.php?page=wgt-bulk-tax' ) ); ?>"><?php esc_html_e( 'Review via Bulk HSN/GST Update', 'wcfm-gst-tcs' ); ?></a>
 				</p>
 			<?php endif; ?>
 		</div>

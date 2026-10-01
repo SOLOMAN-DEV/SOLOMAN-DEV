@@ -1,4 +1,4 @@
-=== WCFM GST & TCS for Multivendor Marketplace ===
+=== SOLOMAN TAXES FOR WCFM ===
 Contributors: solomandev
 Tags: wcfm, multivendor, gst, tcs, india tax
 Requires at least: 6.0
@@ -6,7 +6,7 @@ Tested up to: 6.7
 Requires PHP: 7.4
 WC requires at least: 6.0
 WC tested up to: 9.5
-Stable tag: 1.10.0
+Stable tag: 2.0.0
 License: GPLv2 or later
 
 Adds India GST (CGST/SGST/IGST) tax calculation and GST-TCS (Section 52, CGST Act) compliance
@@ -123,6 +123,21 @@ to a WCFM Marketplace multivendor store.
   attached. This is deliberately an earnings summary, not a GST report — delivery persons and
   affiliates earn a service commission rather than selling anything themselves, so none of
   this plugin's GST/TCS-on-product-sales calculation applies to them; see Notes below.
+* The Settings > GST & TCS compliance panel flags published products still saved at a
+  GST-2.0-legacy rate (12% or 28%) — not necessarily wrong, but worth a CA confirming each one
+  wasn't simply missed during reclassification after the September 2025 reform. The same flag
+  appears next to the rate on the product list column, and the affected products link straight
+  to Bulk HSN/GST Update for review.
+* A TCS Reconciliation report (Settings > GST & TCS > TCS Reconciliation): upload the
+  vendor-wise TCS credit the government actually shows for a period (GSTR-2X, compiled from
+  your GSTR-8 filing) as a CSV, and get a side-by-side comparison against this plugin's own
+  computed TCS ledger per vendor/period — matched, mismatched, or unmatched (no vendor found
+  for that GSTIN) — so a discrepancy is caught early instead of only at filing time or in a
+  vendor dispute. Doesn't fetch anything from the GST portal automatically.
+* Warns an admin on nginx (via SERVER_SOFTWARE detection) that the .htaccess "Deny from all"
+  rule protecting the large-export file folder doesn't do anything for them — nginx ignores
+  .htaccess — and gives the equivalent nginx server block to add. The one-time download token
+  is the real access control regardless of webserver; this is defense in depth.
 
 == Notes ==
 
@@ -151,6 +166,24 @@ to a WCFM Marketplace multivendor store.
   include PHPUnit.
 
 == Changelog ==
+
+= 2.0.0 =
+* Renamed the plugin to "SOLOMAN TAXES FOR WCFM" (Plugin Name header, readme title, and
+  on-screen dependency notice). Internal identifiers — class name prefixes (WGT_*), post/order
+  meta keys (_wgt_hsn_code, _wgt_gst_rate, etc.), the wgt_settings option, the TCS ledger table,
+  and the text domain — were deliberately left unchanged, so existing HSN/GST data, vendor
+  GSTIN/state settings, and the TCS ledger on an already-live site keep working without any
+  migration step. The plugin folder/slug also wasn't renamed, for the same reason.
+* Added a legacy-GST-rate flag to the compliance panel and product list: published products
+  still at 12% or 28% (phased out of general use by the September 2025 GST 2.0 reform) are
+  surfaced for a CA to confirm, with a link straight to Bulk HSN/GST Update for review.
+* Added a TCS Reconciliation report (Settings > GST & TCS > TCS Reconciliation): upload
+  GSTR-2X-style vendor TCS credit data as a CSV and get a side-by-side match/mismatch/unmatched
+  comparison against this plugin's own computed TCS ledger, per vendor and period.
+* Added an nginx detection notice: the large-export file folder's .htaccess "Deny from all"
+  rule is Apache-only and silently does nothing on nginx — an admin on nginx now gets a warning
+  with the equivalent server block to add, since PHP can't write nginx config itself. The
+  one-time download token remains the real access control regardless of webserver.
 
 = 1.10.0 =
 * Extended the GST 2.0 slab update (1.9.0) to the rest of the admin/vendor surfaces instead of
