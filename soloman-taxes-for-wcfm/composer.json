@@ -1,6 +1,6 @@
 {
-    "name": "solomandev/wcfm-gst-tcs-marketplace",
-    "description": "GST/TCS for WCFM Marketplace",
+    "name": "solomandev/soloman-taxes-for-wcfm",
+    "description": "SOLOMAN TAXES FOR WCFM — GST/TCS for WCFM Marketplace",
     "type": "wordpress-plugin",
     "require": {
         "dompdf/dompdf": "^3.1"

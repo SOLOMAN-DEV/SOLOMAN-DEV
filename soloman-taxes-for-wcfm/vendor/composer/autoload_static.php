@@ -4,7 +4,7 @@
 
 namespace Composer\Autoload;
 
-class ComposerStaticInit2d09c195b9e62e0046f482cdc88e6c04
+class ComposerStaticInitb922ede6df40e280cc466ba7e9b46714
 {
     public static $files = array (
         '51fcf4e06c07cc00c920b44bcd900e7a' => __DIR__ . '/..' . '/thecodingmachine/safe/deprecated/apc.php',
@@ -470,9 +470,9 @@ class ComposerStaticInit2d09c195b9e62e0046f482cdc88e6c04
     public static function getInitializer(ClassLoader $loader)
     {
         return \Closure::bind(function () use ($loader) {
-            $loader->prefixLengthsPsr4 = ComposerStaticInit2d09c195b9e62e0046f482cdc88e6c04::$prefixLengthsPsr4;
-            $loader->prefixDirsPsr4 = ComposerStaticInit2d09c195b9e62e0046f482cdc88e6c04::$prefixDirsPsr4;
-            $loader->classMap = ComposerStaticInit2d09c195b9e62e0046f482cdc88e6c04::$classMap;
+            $loader->prefixLengthsPsr4 = ComposerStaticInitb922ede6df40e280cc466ba7e9b46714::$prefixLengthsPsr4;
+            $loader->prefixDirsPsr4 = ComposerStaticInitb922ede6df40e280cc466ba7e9b46714::$prefixDirsPsr4;
+            $loader->classMap = ComposerStaticInitb922ede6df40e280cc466ba7e9b46714::$classMap;
 
         }, null, ClassLoader::class);
     }

@@ -6,7 +6,7 @@ Tested up to: 6.7
 Requires PHP: 7.4
 WC requires at least: 6.0
 WC tested up to: 9.5
-Stable tag: 2.0.0
+Stable tag: 2.1.0
 License: GPLv2 or later
 
 Adds India GST (CGST/SGST/IGST) tax calculation and GST-TCS (Section 52, CGST Act) compliance
@@ -166,6 +166,23 @@ to a WCFM Marketplace multivendor store.
   include PHPUnit.
 
 == Changelog ==
+
+= 2.1.0 =
+* Renamed the plugin folder and main file to match the new brand: `wcfm-gst-tcs-marketplace/`
+  is now `soloman-taxes-for-wcfm/`, and the main plugin file is now `soloman-taxes-for-wcfm.php`
+  (was `wcfm-gst-tcs-marketplace.php`). This is the actual WordPress plugin slug, unlike the
+  2.0.0 rename which only changed the display name.
+* IMPORTANT if you already have the previous version active: WordPress identifies a plugin by
+  its folder path, so this is a new slug as far as WordPress is concerned. Uploading this zip
+  will install it alongside the old one rather than replacing it. To switch over: deactivate
+  and delete the old "WCFM GST & TCS for Multivendor Marketplace" / "SOLOMAN TAXES FOR WCFM"
+  (wcfm-gst-tcs-marketplace folder) plugin, then install and activate this zip. All of your
+  data is safe either way — HSN/GST product meta, vendor GSTIN/state settings, the TCS ledger,
+  and all plugin settings live in the database under unchanged internal keys, independent of
+  the plugin folder name, so nothing is lost by deactivating the old folder and activating the
+  new one.
+* Internal class name prefixes (WGT_*), the settings option key, meta keys, the TCS ledger
+  table name, and the text domain are still deliberately unchanged, for the same reason.
 
 = 2.0.0 =
 * Renamed the plugin to "SOLOMAN TAXES FOR WCFM" (Plugin Name header, readme title, and

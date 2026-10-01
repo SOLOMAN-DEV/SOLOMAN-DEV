@@ -1,9 +1,9 @@
 <?php return array(
     'root' => array(
-        'name' => 'solomandev/wcfm-gst-tcs-marketplace',
+        'name' => 'solomandev/soloman-taxes-for-wcfm',
         'pretty_version' => 'dev-main',
         'version' => 'dev-main',
-        'reference' => 'fb68fcabaad5cba17363d42b61a074c60e282bfd',
+        'reference' => '646f5794a4f532ee49ff1cff1d61efbdc94c99dd',
         'type' => 'wordpress-plugin',
         'install_path' => __DIR__ . '/../../',
         'aliases' => array(),
@@ -55,10 +55,10 @@
             'aliases' => array(),
             'dev_requirement' => false,
         ),
-        'solomandev/wcfm-gst-tcs-marketplace' => array(
+        'solomandev/soloman-taxes-for-wcfm' => array(
             'pretty_version' => 'dev-main',
             'version' => 'dev-main',
-            'reference' => 'fb68fcabaad5cba17363d42b61a074c60e282bfd',
+            'reference' => '646f5794a4f532ee49ff1cff1d61efbdc94c99dd',
             'type' => 'wordpress-plugin',
             'install_path' => __DIR__ . '/../../',
             'aliases' => array(),
