@@ -48,12 +48,22 @@ const app = express();
 app.use(express.json());
 
 app.post('/signup', async (req, res) => {
-  const { id, name, email, phone } = req.body;
+  const { id, name, email, phone, marketingOptIn } = req.body; // opt-in checkbox, unticked by default
   await inTransaction(async (conn) => {
     await conn.query('INSERT INTO customers (id, name, email, phone) VALUES (?, ?, ?, ?)', [id, name, email, phone]);
-    await outbox.enqueue([events.customerRegistered({ customerId: id, name, email, phone })], conn);
+    await outbox.enqueue([events.customerRegistered({
+      customerId: id, name, email, phone, marketingConsent: marketingOptIn === true,
+    })], conn);
   });
   res.status(201).json({ id });
+});
+
+// Marketing preferences page and email unsubscribe links.
+app.post('/account/:id/marketing', async (req, res) => {
+  await outbox.enqueue([events.customerConsentUpdated({
+    customerId: req.params.id, marketing: req.body.optIn === true, source: req.body.source || 'account_settings',
+  })]);
+  res.sendStatus(202);
 });
 
 // Catalogue changes (new product, price or GST rate change). gstRate is the GST included in the price.

@@ -43,6 +43,8 @@ def seed(now: datetime, crm: CRMEngine | None = None) -> CRMEngine:
     crm.customers.register(Customer("C-1", "Asha Patel", "asha@example.com", "9876500001", t0))
     crm.customers.register(Customer("C-2", "Rahul Mehta", "rahul@example.com", "9876500002", t0))
     crm.customers.register(Customer("C-3", "Neha Shah", "neha@example.com", "9876500003", t0))
+    for cid in ("C-1", "C-3"):
+        crm.privacy.set_marketing_consent(cid, True, "signup_form", t0)
     for _ in range(3):
         crm.customers.record_browse("C-1", "apparel")
     crm.customers.record_browse("C-3", "electronics")

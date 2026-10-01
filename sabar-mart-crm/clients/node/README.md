@@ -41,7 +41,8 @@ See [`examples/express-integration.js`](examples/express-integration.js) for eve
 
 | Builder | When to emit | Event id |
 |---|---|---|
-| `customerRegistered` | account created | `customer.registered:<customerId>` |
+| `customerRegistered` | account created (`marketingConsent: true` only on an explicit opt-in) | `customer.registered:<customerId>` |
+| `customerConsentUpdated` | marketing opt-in / opt-out (`source` e.g. `"unsubscribe_link"`) | random |
 | `productUpserted` | product created or changed (name, category, **gstRate**) | derived from the content |
 | `customerBrowsed`, `cartItemAdded`, `cartItemRemoved` | storefront activity | random |
 | `referralClicked` | product visited via `?ref=CODE` | random |

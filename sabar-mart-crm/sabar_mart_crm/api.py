@@ -93,6 +93,12 @@ class CustomerIn(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     email: str = EMAIL
     phone: str = Field(min_length=4, max_length=20, pattern=r"^\+?[0-9 -]+$")
+    marketing_consent: bool = Field(default=False, description="Customer opted in to marketing at signup")
+
+
+class ConsentIn(BaseModel):
+    marketing: bool
+    source: str = Field(min_length=2, max_length=64, description="Where consent was given or withdrawn, e.g. account_settings")
 
 
 class BrowseIn(BaseModel):
@@ -342,6 +348,13 @@ def create_app(
             raise HTTPException(status.HTTP_404_NOT_FOUND, f"{kind} '{key}' not found")
         return mapping[key]
 
+    def active_customer(crm: CRMEngine, customer_id: str) -> Any:
+        """The customer, unless unknown (404) or erased under DPDP (409: no new activity is accepted)."""
+        customer = found(crm.store.customers, customer_id, "customer")
+        if customer.erased_at is not None:
+            raise HTTPException(status.HTTP_409_CONFLICT, f"customer '{customer_id}' has been erased")
+        return customer
+
     def absent(mapping: Mapping[str, Any], key: str, kind: str) -> None:
         if key in mapping:
             raise HTTPException(status.HTTP_409_CONFLICT, f"{kind} '{key}' already exists")
@@ -369,7 +382,10 @@ def create_app(
     def register_customer(crm: CRMEngine, body: CustomerIn, role: RoleDep) -> dict[str, Any]:
         require(role, Permission.INGEST_EVENTS)
         absent(crm.store.customers, body.customer_id, "customer")
-        crm.customers.register(Customer(body.customer_id, body.name, body.email, body.phone, clock()))
+        now = clock()
+        crm.customers.register(Customer(body.customer_id, body.name, body.email, body.phone, now))
+        if body.marketing_consent:
+            crm.privacy.set_marketing_consent(body.customer_id, True, "registration", now)
         return {"customer_id": body.customer_id}
 
     @app.get("/customers/abandoned-carts", tags=["customers"])
@@ -396,14 +412,14 @@ def create_app(
     @tx
     def record_browse(crm: CRMEngine, customer_id: str, body: BrowseIn, role: RoleDep) -> None:
         require(role, Permission.INGEST_EVENTS)
-        found(crm.store.customers, customer_id, "customer")
+        active_customer(crm, customer_id)
         crm.customers.record_browse(customer_id, body.category)
 
     @app.put("/customers/{customer_id}/cart/{product_id}", status_code=204, tags=["customers"])
     @tx
     def add_to_cart(crm: CRMEngine, customer_id: str, product_id: str, body: CartItemIn, role: RoleDep) -> None:
         require(role, Permission.INGEST_EVENTS)
-        found(crm.store.customers, customer_id, "customer")
+        active_customer(crm, customer_id)
         found(crm.store.products, product_id, "product")
         crm.customers.update_cart(customer_id, product_id, body.price, clock())
 
@@ -411,7 +427,7 @@ def create_app(
     @tx
     def remove_from_cart(crm: CRMEngine, customer_id: str, product_id: str, role: RoleDep) -> None:
         require(role, Permission.INGEST_EVENTS)
-        found(crm.store.customers, customer_id, "customer")
+        active_customer(crm, customer_id)
         crm.customers.update_cart(customer_id, product_id, None, clock())
 
     # --- Products & orders --------------------------------------------------------
@@ -447,7 +463,7 @@ def create_app(
     def place_order(crm: CRMEngine, body: OrderIn, role: RoleDep) -> dict[str, Any]:
         require(role, Permission.INGEST_EVENTS)
         absent(crm.store.orders, body.order_id, "order")
-        found(crm.store.customers, body.customer_id, "customer")
+        active_customer(crm, body.customer_id)
         product = found(crm.store.products, body.product_id, "product")
         # Vendor and category come from the catalog, never from the client.
         order = Order(body.order_id, body.customer_id, product.vendor_id, product.product_id, product.category,
@@ -520,7 +536,7 @@ def create_app(
     def submit_ticket(crm: CRMEngine, body: TicketIn, role: RoleDep) -> dict[str, Any]:
         require(role, Permission.SUBMIT_TICKETS)
         absent(crm.store.tickets, body.ticket_id, "ticket")
-        found(crm.store.customers, body.customer_id, "customer")
+        active_customer(crm, body.customer_id)
         if body.order_id:
             order = found(crm.store.orders, body.order_id, "order")
             if order.customer_id != body.customer_id:
@@ -634,7 +650,8 @@ def create_app(
     @tx
     def approve_affiliate(crm: CRMEngine, affiliate_id: str, role: RoleDep) -> None:
         require(role, Permission.MANAGE_AFFILIATES)
-        found(crm.store.affiliates, affiliate_id, "affiliate")
+        if found(crm.store.affiliates, affiliate_id, "affiliate").erased_at is not None:
+            raise HTTPException(status.HTTP_409_CONFLICT, f"affiliate '{affiliate_id}' has been erased")
         crm.affiliates.approve(affiliate_id)
 
     @app.get("/affiliates/{affiliate_id}/commission", tags=["finance"])
@@ -746,6 +763,45 @@ def create_app(
                    if actor else crm.store.recent("audit", limit))
         return to_jsonable(entries)
 
+    # --- Privacy (DPDP Act 2023) ------------------------------------------------------------
+
+    @app.post("/customers/{customer_id}/consent", tags=["privacy"])
+    @tx
+    def set_consent(crm: CRMEngine, customer_id: str, body: ConsentIn, role: RoleDep) -> dict[str, Any]:
+        require(role, Permission.MANAGE_CONSENT)
+        active_customer(crm, customer_id)
+        return to_jsonable(crm.privacy.set_marketing_consent(customer_id, body.marketing, body.source, clock()))
+
+    @app.get("/customers/{customer_id}/export", tags=["privacy"])
+    @tx(audit_reads=True)
+    def export_customer(crm: CRMEngine, customer_id: str, role: RoleDep) -> dict[str, Any]:
+        """Everything held about the customer (DPDP right of access)."""
+        require(role, Permission.EXPORT_PERSONAL_DATA)
+        found(crm.store.customers, customer_id, "customer")
+        return crm.privacy.export_customer(customer_id, clock())
+
+    @app.post("/customers/{customer_id}/erase", tags=["privacy"])
+    @tx
+    def erase_customer(crm: CRMEngine, customer_id: str, actor: ActorDep) -> dict[str, Any]:
+        """Anonymise the customer (DPDP right to erasure); tax records are kept without personal data."""
+        require(actor.role, Permission.ERASE_PERSONAL_DATA)
+        found(crm.store.customers, customer_id, "customer")
+        return to_jsonable(crm.privacy.erase_customer(customer_id, actor.name, clock()))
+
+    @app.get("/affiliates/{affiliate_id}/export", tags=["privacy"])
+    @tx(audit_reads=True)
+    def export_affiliate(crm: CRMEngine, affiliate_id: str, role: RoleDep) -> dict[str, Any]:
+        require(role, Permission.EXPORT_PERSONAL_DATA)
+        found(crm.store.affiliates, affiliate_id, "affiliate")
+        return crm.privacy.export_affiliate(affiliate_id, clock())
+
+    @app.post("/affiliates/{affiliate_id}/erase", tags=["privacy"])
+    @tx
+    def erase_affiliate(crm: CRMEngine, affiliate_id: str, actor: ActorDep) -> dict[str, Any]:
+        require(actor.role, Permission.ERASE_PERSONAL_DATA)
+        found(crm.store.affiliates, affiliate_id, "affiliate")
+        return to_jsonable(crm.privacy.erase_affiliate(affiliate_id, actor.name, clock()))
+
     # --- Batched storefront events ------------------------------------------------------------
 
     # event type -> (endpoint, fields of ``data`` that are path parameters, body model or None)
@@ -763,6 +819,7 @@ def create_app(
         "referral.clicked": (track_click, (), ClickIn),
         "vendor.reviewed": (add_review, ("vendor_id",), ReviewIn),
         "ticket.created": (submit_ticket, (), TicketIn),
+        "customer.consent_updated": (set_consent, ("customer_id",), ConsentIn),
     }
 
     def event_call(event: EventIn, actor: Actor) -> Callable[[CRMEngine], Any]:

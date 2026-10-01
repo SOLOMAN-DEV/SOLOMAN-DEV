@@ -108,9 +108,12 @@ class CustomerManager:
             return LifecycleStage.CART_ABANDONED
         return LifecycleStage.REPEAT if len(orders) > 1 else LifecycleStage.FIRST_PURCHASE
 
-    def abandoned_carts(self, now: datetime) -> list[dict[str, Any]]:
+    def abandoned_carts(self, now: datetime, consented_only: bool = True) -> list[dict[str, Any]]:
+        """Carts left idle. By default only customers who opted in to marketing (DPDP consent)."""
         out = []
         for c in self.store.customers.values():
+            if consented_only and not c.marketing_consent:
+                continue
             if c.cart and c.cart_updated_at and now - c.cart_updated_at >= timedelta(hours=config.CART_ABANDONMENT_HOURS):
                 out.append({
                     "customer_id": c.customer_id,

@@ -31,12 +31,24 @@ function required(obj, ...names) {
 
 const randomId = (type) => `${type}:${crypto.randomUUID()}`;
 
-function customerRegistered({ customerId, name, email, phone }) {
+/** marketingConsent: true only if the customer actively opted in (DPDP). */
+function customerRegistered({ customerId, name, email, phone, marketingConsent = false }) {
   required({ customerId, name, email, phone }, 'customerId', 'name', 'email', 'phone');
   return {
     id: `customer.registered:${customerId}`,
     type: 'customer.registered',
-    data: { customer_id: customerId, name, email, phone },
+    data: { customer_id: customerId, name, email, phone, marketing_consent: Boolean(marketingConsent) },
+  };
+}
+
+/** Opt-in or opt-out of marketing; source records where it happened (e.g. "unsubscribe_link"). */
+function customerConsentUpdated({ customerId, marketing, source }) {
+  required({ customerId, source }, 'customerId', 'source');
+  if (typeof marketing !== 'boolean') throw new TypeError('marketing must be true or false');
+  return {
+    id: randomId('customer.consent_updated'),
+    type: 'customer.consent_updated',
+    data: { customer_id: customerId, marketing, source },
   };
 }
 
@@ -110,6 +122,7 @@ function ticketCreated({ ticketId, customerId, subject, body, orderId }) {
 module.exports = {
   money,
   customerRegistered,
+  customerConsentUpdated,
   customerBrowsed,
   cartItemAdded,
   cartItemRemoved,

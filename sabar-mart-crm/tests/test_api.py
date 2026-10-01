@@ -354,6 +354,35 @@ class APITests(unittest.TestCase):
                   json={"vendor_id": "V-2", "store_name": "Other", "contact_email": "o@other.example"})
         self.call("PUT", "/products/P-1", "k-system", 409, json={**body, "vendor_id": "V-2"})
 
+    # --- privacy (DPDP) -----------------------------------------------------------
+
+    def test_privacy_endpoints(self):
+        self.seed_vendor()
+        self.call("POST", "/customers", "k-system", 201,
+                  json={"customer_id": "C-1", "name": "Asha", "email": "asha@example.com", "phone": "98765",
+                        "marketing_consent": True})
+        self.assertTrue(self.call("GET", "/customers/C-1", "k-marketing")["marketing_consent"])
+        self.call("POST", "/events", "k-system", json={"events": [
+            {"id": "c1", "type": "customer.consent_updated",
+             "data": {"customer_id": "C-1", "marketing": False, "source": "unsubscribe_link"}}]})
+        self.assertEqual(self.call("GET", "/customers/C-1", "k-marketing")["recommendations"], [])
+
+        self.complete_order("O-1", "500.00")
+        export = self.call("GET", "/customers/C-1/export", "k-support")
+        self.assertEqual((export["profile"]["email"], export["consent"]["source"]),
+                         ("asha@example.com", "unsubscribe_link"))
+        self.call("GET", "/customers/C-1/export", "k-marketing", 403)
+        self.call("POST", "/customers/C-1/erase", "k-support", 403)  # admins only
+
+        erased = self.call("POST", "/customers/C-1/erase", "k-admin")
+        self.assertEqual(erased["erased_by"], "env-admin-2")
+        self.assertEqual(self.call("GET", "/customers/C-1", "k-support")["name"], "Erased customer")
+        self.call("POST", "/customers/C-1/browse", "k-system", 409, json={"category": "x"})
+        self.call("POST", "/orders", "k-system", 409,
+                  json={"order_id": "O-2", "customer_id": "C-1", "product_id": "P-1", "amount": "10"})
+        log = self.call("GET", "/audit", "k-admin", params={"actor": "env-admin-2"})
+        self.assertIn(("/customers/C-1/erase", "success"), [(e["path"], e["outcome"]) for e in log])
+
     def test_analytics(self):
         self.seed_vendor()
         self.seed_customer()

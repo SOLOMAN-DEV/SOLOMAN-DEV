@@ -101,6 +101,10 @@ test('event builders validate input and produce stable ids', () => {
   assert.throws(() => events.orderPlaced({ orderId: 'O-1', customerId: 'C-1', productId: 'P-1', amount: '12.345' }));
   assert.throws(() => events.orderPlaced({ orderId: 'O-1', customerId: 'C-1', productId: 'P-1', amount: -1 }));
   assert.throws(() => events.customerRegistered({ customerId: 'C-1' }), /name is required/);
+  assert.equal(events.customerRegistered({ customerId: 'C-1', name: 'A', email: 'a@x.in', phone: '98' }).data.marketing_consent, false);
+  assert.throws(() => events.customerConsentUpdated({ customerId: 'C-1', marketing: 'yes', source: 'web' }));
+  assert.equal(events.customerConsentUpdated({ customerId: 'C-1', marketing: false, source: 'unsubscribe_link' }).type,
+    'customer.consent_updated');
 
   const p1 = events.productUpserted({ productId: 'P-1', vendorId: 'V-1', name: 'Kurta', category: 'apparel', gstRate: '0.05' });
   const p1again = events.productUpserted({ productId: 'P-1', vendorId: 'V-1', name: 'Kurta', category: 'apparel', gstRate: '0.05' });

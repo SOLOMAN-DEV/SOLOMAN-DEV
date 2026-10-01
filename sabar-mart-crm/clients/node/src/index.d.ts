@@ -48,7 +48,8 @@ export class CrmClient {
 
 export const events: {
   money(value: Money, field?: string): string;
-  customerRegistered(e: { customerId: string; name: string; email: string; phone: string }): CrmEvent;
+  customerRegistered(e: { customerId: string; name: string; email: string; phone: string; marketingConsent?: boolean }): CrmEvent;
+  customerConsentUpdated(e: { customerId: string; marketing: boolean; source: string }): CrmEvent;
   customerBrowsed(e: { customerId: string; category: string }): CrmEvent;
   cartItemAdded(e: { customerId: string; productId: string; price: Money }): CrmEvent;
   cartItemRemoved(e: { customerId: string; productId: string }): CrmEvent;

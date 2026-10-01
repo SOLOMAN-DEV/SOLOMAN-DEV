@@ -38,10 +38,13 @@ class Permission(str, Enum):
     APPROVE_REFUNDS = "finance:refunds:approve"
     MANAGE_USERS = "admin:users:manage"
     VIEW_AUDIT = "admin:audit:view"
+    MANAGE_CONSENT = "privacy:consent:manage"
+    EXPORT_PERSONAL_DATA = "privacy:data:export"
+    ERASE_PERSONAL_DATA = "privacy:data:erase"
 
 
 ROLE_PERMISSIONS: dict[Role, frozenset[Permission]] = {
-    Role.SYSTEM: frozenset({Permission.INGEST_EVENTS, Permission.SUBMIT_TICKETS}),
+    Role.SYSTEM: frozenset({Permission.INGEST_EVENTS, Permission.SUBMIT_TICKETS, Permission.MANAGE_CONSENT}),
     Role.SUPPORT_AGENT: frozenset({
         Permission.VIEW_CUSTOMER_PROFILE,
         Permission.VIEW_CUSTOMER_PII,
@@ -50,6 +53,8 @@ ROLE_PERMISSIONS: dict[Role, frozenset[Permission]] = {
         Permission.RESOLVE_TASKS,
         Permission.SUBMIT_TICKETS,
         Permission.REQUEST_REFUNDS,
+        Permission.MANAGE_CONSENT,
+        Permission.EXPORT_PERSONAL_DATA,
     }),
     Role.FINANCE: frozenset({
         Permission.VIEW_VENDOR_LEDGER,

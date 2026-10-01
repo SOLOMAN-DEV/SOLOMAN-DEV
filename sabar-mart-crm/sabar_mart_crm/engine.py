@@ -14,6 +14,7 @@ from typing import Any
 
 from . import config
 from .affiliates import AffiliateManager
+from .privacy import PrivacyManager
 from .customers import CustomerManager
 from .escalation import EscalationEngine
 from .models import Order, OrderStatus, Priority, Refund, RefundStatus, SupportTicket, money, to_jsonable
@@ -29,6 +30,7 @@ class CRMEngine:
         self.customers = CustomerManager(self.store, self.escalations)
         self.vendors = VendorManager(self.store, self.escalations)
         self.affiliates = AffiliateManager(self.store, self.escalations)
+        self.privacy = PrivacyManager(self.store, self.affiliates)
 
     # --- Order lifecycle (cross-pillar fan-out) ----------------------------------
 
@@ -165,13 +167,16 @@ class CRMEngine:
             "lifetime_value": self.customers.lifetime_value(customer_id),
             "orders": len(c.order_ids),
             "loyalty_points": c.loyalty_points,
+            "marketing_consent": c.marketing_consent,
+            "erased": c.erased_at is not None,
         }
         if not has_permission(role, Permission.VIEW_CUSTOMER_PII):
             record = mask_pii(record)
         if has_permission(role, Permission.VIEW_TICKETS):
-            record["open_tickets"] = [t.ticket_id for t in self.store.tickets.values() if t.customer_id == customer_id]
+            record["open_tickets"] = [t.ticket_id for t in self.store.find("tickets", customer_id=customer_id)]
         if has_permission(role, Permission.VIEW_RECOMMENDATIONS):
-            record["recommendations"] = self.customers.recommendations(customer_id)
+            # Personalised marketing needs the customer's consent (DPDP).
+            record["recommendations"] = self.customers.recommendations(customer_id) if c.marketing_consent else []
         return to_jsonable(record)
 
     def support_queue(self, role: Role) -> list[dict[str, Any]]:
@@ -223,7 +228,9 @@ class CRMEngine:
         return to_jsonable({
             "generated_at": now,
             "customers": {"total": len(self.store.customers), "by_lifecycle_stage": dict(stages),
-                          "abandoned_carts": len(self.customers.abandoned_carts(now))},
+                          "abandoned_carts": len(self.customers.abandoned_carts(now, consented_only=False)),
+                          "marketing_opt_ins": sum(c.marketing_consent for c in self.store.customers.values()),
+                          "erased": sum(c.erased_at is not None for c in self.store.customers.values())},
             "orders": {"total": len(orders), "by_status": dict(status_counts)},
             "revenue": {"gmv_delivered_net_of_refunds": gmv,
                         "marketplace_commission_net": withheld("commission"),

@@ -95,6 +95,10 @@ class Customer:
     order_ids: list[str] = field(default_factory=list)
     loyalty_points: int = 0
     milestones_awarded: list[int] = field(default_factory=list)
+    marketing_consent: bool = False  # DPDP: campaigns and personalisation only with opt-in
+    consent_updated_at: datetime | None = None
+    consent_source: str | None = None
+    erased_at: datetime | None = None  # set by a DPDP erasure; the record is anonymised
 
 
 class Sentiment(str, Enum):
@@ -166,6 +170,7 @@ class Affiliate:
     referral_code: str
     approved: bool = False
     assets: list[str] = field(default_factory=list)
+    erased_at: datetime | None = None
 
 
 @dataclass

@@ -52,6 +52,7 @@ curl -H "Authorization: Bearer sk-admin-change-me" localhost:8000/analytics
 | Finance | `GET /vendors/payouts`, `GET /vendors/{id}/ledger`, `POST /vendors/{id}/payouts`, `GET /affiliates/payouts`, `GET /affiliates/{id}/commission`, `GET /affiliates/{id}/payout-preview`, `POST` and `GET /affiliates/{id}/payouts`, `GET /finance/tax-report?start=&end=` |
 | Affiliates | `POST /affiliates`, `GET /affiliates/{id}`, `POST /affiliates/{id}/approve`, `POST /referrals/clicks`, `POST /affiliate-assets`, `POST /affiliates/{id}/assets/{asset_id}` |
 | Internal | `GET /tasks?team=…`, `POST /tasks/{id}/resolve`, `GET /analytics` |
+| Privacy (DPDP) | `POST /customers/{id}/consent`, `GET /customers/{id}/export`, `POST /customers/{id}/erase`, `GET /affiliates/{id}/export`, `POST /affiliates/{id}/erase` |
 | Admin | `POST /users`, `GET /users`, `POST /users/{name}/deactivate`, `POST /users/{name}/rotate-key`, `GET /audit` |
 
 Status codes: `401` for a missing or unknown key, `403` when the role lacks permission (checked before existence, so IDs cannot be probed), `404` for an unknown ID, `409` for a duplicate ID or a broken business rule (such as a return after the window or delivering before shipping), and `422` for an invalid body.
@@ -109,6 +110,7 @@ Other environment variables: `SABAR_CRM_API_KEYS` (required), `SABAR_CRM_DOCS=0`
 | `api.py` | FastAPI REST layer: API-key auth, request validation, role checks on every endpoint, one transaction per request |
 | `passenger_wsgi.py` | Passenger (cPanel) entry point that wraps the ASGI app as WSGI |
 | `rbac.py` | Roles, permissions, team queue scoping, PII masking |
+| `privacy.py` | DPDP consent, data export and anonymising erasure |
 | `escalation.py` | De-duplicated internal tasks, routed to team queues and sorted by priority |
 
 ### Order lifecycle fan-out
@@ -150,6 +152,22 @@ Vendors are paid the balance, minus orders still inside the return window. `GET 
 - A payout run records exactly what it paid, so nothing is paid twice.
 - If a paid order is refunded later, the next payout deducts the difference (a clawback). When the clawback is larger than the new commission, the remainder carries forward to the next run.
 
+## Privacy (DPDP Act 2023)
+
+| Right | How |
+|---|---|
+| **Consent** | `marketing_consent` is set at signup (opt-in only) and changed with `POST /customers/{id}/consent` or a `customer.consent_updated` event. Each change records when it happened and where it came from. Without consent, a customer gets no cart-recovery campaign and no personalised recommendations. |
+| **Access** | `GET /customers/{id}/export` (support, admin) returns everything held: profile, consent, loyalty, browsing, cart, orders, refunds and tickets. The same exists for affiliates. |
+| **Erasure** | `POST /customers/{id}/erase` (admin only) anonymises the person: name, email, phone, activity, ticket text, refund reasons, and for affiliates their personal referral code. Orders, ledger entries, refunds and payouts are **kept without personal data**, because tax law requires them. Afterwards, any new event for that customer is rejected with `409`. |
+| **Erasure is refused** | while an obligation is still running: orders in transit or refunds awaiting a decision, and for affiliates, commission still owed. Finish those, then erase. |
+
+Every export and erasure is in the audit log under the name of the person who did it.
+
+Things you still need to do outside the CRM:
+- **Grievance officer:** publish one and a privacy notice.
+- **Requests:** answer data requests within your stated timelines.
+- **Backups:** delete them on the retention schedule, because erased data can still be in older backups.
+
 ## Escalation rules
 
 | Rule | Trigger | Owner team | Priority |
@@ -169,7 +187,7 @@ A rule that fires again for the same subject updates the task that is already op
 | Role | Can see |
 |---|---|
 | `system` | Nothing to read. Can push customers, products, orders, browsing, carts, clicks, reviews and tickets |
-| `support_agent` | Customer profiles with full PII, tickets, the customer_support and trust_and_safety queues |
+| `support_agent` | Customer profiles with full PII, tickets, refund requests, consent changes, data exports, the customer_support and trust_and_safety queues |
 | `finance` | Vendor ledgers and payouts, affiliate payouts, the tax report, refund approval, vendor profiles, the finance queue |
 | `vendor_manager` | Vendor scorecards and onboarding, the vendor_success queue |
 | `affiliate_manager` | Affiliates and asset distribution, the affiliate_ops queue |
