@@ -2,3 +2,5 @@ __pycache__/
 *.pyc
 *.egg-info/
 node_modules/
+sabar-mart-crm/docs/guide/package/
+sabar-mart-crm/docs/guide/*.tgz

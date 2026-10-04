@@ -1,0 +1,685 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Sabar Mart CRM: User Guide</title>
+<style>
+  @page { size: A4; margin: 18mm 16mm 20mm 16mm; }
+  :root {
+    --ink: #1f2937; --muted: #5b6474; --line: #e3e7ee; --brand: #0f766e; --brand-soft: #e6f4f2;
+    --accent: #b45309; --accent-soft: #fdf3e5; --blue: #2563eb; --blue-soft: #eaf1fe; --red: #b91c1c; --red-soft: #fdecec;
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  body { font-family: "Liberation Sans", "DejaVu Sans", Arial, sans-serif; color: var(--ink); font-size: 10.5pt; line-height: 1.5; margin: 0; }
+  h1, h2, h3 { color: #0b1f33; line-height: 1.2; }
+  h1 { font-size: 22pt; margin: 0 0 4mm; }
+  h2 { font-size: 15pt; margin: 7mm 0 3mm; padding-bottom: 1.5mm; border-bottom: 2px solid var(--brand); }
+  h3 { font-size: 12pt; margin: 5mm 0 2mm; break-after: avoid; page-break-after: avoid; }
+  h2 { break-after: avoid; page-break-after: avoid; }
+  .keep { break-inside: avoid; page-break-inside: avoid; }
+  p { margin: 0 0 2.5mm; }
+  ul, ol { margin: 0 0 3mm; padding-left: 6mm; }
+  li { margin-bottom: 1mm; }
+  code, .mono { font-family: "DejaVu Sans Mono", "Liberation Mono", monospace; font-size: 9pt; background: #f2f4f7; padding: 0.2mm 1mm; border-radius: 1mm; }
+  pre { font-family: "DejaVu Sans Mono", monospace; font-size: 8.4pt; background: #0f172a; color: #e2e8f0; padding: 3mm 4mm; border-radius: 2mm; white-space: pre-wrap; margin: 0 0 3mm; line-height: 1.45; break-inside: avoid; }
+  table { width: 100%; border-collapse: collapse; margin: 0 0 4mm; font-size: 9.5pt; break-inside: avoid; }
+  th, td { border: 1px solid var(--line); padding: 1.6mm 2.2mm; text-align: left; vertical-align: top; }
+  th { background: #f4f6f9; font-weight: bold; }
+  .chapter { break-before: page; }
+  .muted { color: var(--muted); }
+  .small { font-size: 9pt; }
+  .callout { border-left: 4px solid var(--brand); background: var(--brand-soft); padding: 2.5mm 4mm; border-radius: 0 2mm 2mm 0; margin: 0 0 4mm; break-inside: avoid; }
+  .callout.warn { border-color: var(--accent); background: var(--accent-soft); }
+  .callout.stop { border-color: var(--red); background: var(--red-soft); }
+  .callout b:first-child { display: block; margin-bottom: 0.8mm; }
+  figure { margin: 2mm 0 5mm; break-inside: avoid; text-align: center; }
+  figure img { max-width: 100%; max-height: 165mm; border: 1px solid var(--line); border-radius: 1.5mm; box-shadow: 0 0.6mm 2mm rgba(15, 23, 42, .08); }
+  figure img.short { max-height: 115mm; }
+  figure img.tiny { max-height: 70mm; }
+  figcaption { font-size: 8.8pt; color: var(--muted); margin-top: 1.8mm; text-align: left; }
+  figcaption b { color: var(--ink); }
+  svg { max-width: 100%; height: auto; }
+  .steps { counter-reset: step; list-style: none; padding: 0; }
+  .steps > li { counter-increment: step; position: relative; padding-left: 9mm; margin-bottom: 2.2mm; }
+  .steps > li::before { content: counter(step); position: absolute; left: 0; top: -0.3mm; width: 6mm; height: 6mm; border-radius: 50%; background: var(--brand); color: #fff; font-weight: bold; font-size: 8.5pt; text-align: center; line-height: 6mm; }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 5mm; }
+  .tick { color: var(--brand); font-weight: bold; text-align: center; }
+  .dash { color: #c3c9d3; text-align: center; }
+  .pill { display: inline-block; font-size: 8pt; font-weight: bold; padding: 0.3mm 2mm; border-radius: 3mm; color: #fff; }
+  .get { background: #61affe; } .post { background: #49cc90; } .put { background: #fca130; }
+  /* cover */
+  .cover { height: 255mm; display: flex; flex-direction: column; justify-content: space-between; }
+  .cover .band { background: linear-gradient(135deg, #0f766e 0%, #115e59 55%, #134e4a 100%); color: #fff; border-radius: 4mm; padding: 16mm 14mm; }
+  .cover .band h1 { color: #fff; font-size: 30pt; margin-bottom: 3mm; }
+  .cover .band p { font-size: 13pt; opacity: .92; margin: 0; }
+  .cover .kicker { text-transform: uppercase; letter-spacing: .18em; font-size: 9pt; opacity: .8; margin-bottom: 6mm !important; }
+  .cover .meta td { border: none; padding: 1mm 0; font-size: 10pt; }
+  .toc { columns: 2; column-gap: 8mm; font-size: 10pt; }
+  .toc div { break-inside: avoid; margin-bottom: 1.4mm; }
+  .toc span { color: var(--brand); font-weight: bold; display: inline-block; width: 7mm; }
+</style>
+</head>
+<body>
+
+<!-- ============================== COVER ============================== -->
+<section class="cover">
+  <div>
+    <div class="band">
+      <p class="kicker">sabarmart.com · internal handbook</p>
+      <h1>Sabar Mart CRM</h1>
+      <p>How to use, connect and run the customer, vendor and affiliate system</p>
+    </div>
+    <div style="margin-top:10mm">
+      <h3 style="margin-top:0">What's inside</h3>
+      <div class="toc">
+        <div><span>1</span>What the CRM does</div>
+        <div><span>2</span>Getting started: opening and logging in</div>
+        <div><span>3</span>Who can do what (roles)</div>
+        <div><span>4</span>Support team</div>
+        <div><span>5</span>Finance team</div>
+        <div><span>6</span>Vendor team</div>
+        <div><span>7</span>Admin and privacy</div>
+        <div><span>8</span>Connecting the Node.js store</div>
+        <div><span>9</span>Putting it live on MilesWeb</div>
+        <div><span>10</span>Backups, alerts and troubleshooting</div>
+        <div><span>11</span>Quick reference</div>
+      </div>
+    </div>
+  </div>
+  <div>
+    <div class="callout">
+      <b>About the pictures</b>
+      The screenshots are real. They were taken from the CRM itself (version 1.4.0) running with its built-in demo data:
+      sample customers such as Asha Patel and sample vendors such as Kiran Textiles. On your live system you'll see your own data in the same places.
+      The flow pictures are diagrams drawn for this guide.
+    </div>
+    <table class="meta">
+      <tr><td class="muted" style="width:32mm">Version</td><td>CRM 1.4.0 · October 2026</td></tr>
+      <tr><td class="muted">For</td><td>Support, finance, vendor, affiliate and marketing staff, administrators, and the store developer</td></tr>
+      <tr><td class="muted">Source</td><td>github.com/SOLOMAN-DEV/SOLOMAN-DEV · folder <span class="mono">sabar-mart-crm</span></td></tr>
+    </table>
+  </div>
+</section>
+
+<!-- ============================== 1 ============================== -->
+<section class="chapter">
+<h2>1 · What the CRM does</h2>
+<p>The Sabar Mart CRM is the one place that keeps track of everything happening around the marketplace:
+who your customers are and what they buy, how each vendor is performing and what they are owed, which affiliates
+bring in sales, and which problems need someone's attention.</p>
+
+<figure>
+<svg viewBox="0 0 760 330" xmlns="http://www.w3.org/2000/svg" font-family="Liberation Sans, Arial, sans-serif">
+  <defs>
+    <marker id="ar" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#64748b"/></marker>
+  </defs>
+  <!-- store -->
+  <rect x="10" y="40" width="170" height="110" rx="10" fill="#eaf1fe" stroke="#2563eb" stroke-width="1.5"/>
+  <text x="95" y="68" text-anchor="middle" font-size="15" font-weight="bold" fill="#1e3a8a">sabarmart.com</text>
+  <text x="95" y="88" text-anchor="middle" font-size="12" fill="#1e3a8a">Node.js store</text>
+  <text x="95" y="112" text-anchor="middle" font-size="11" fill="#334155">signups · orders</text>
+  <text x="95" y="128" text-anchor="middle" font-size="11" fill="#334155">deliveries · reviews</text>
+  <!-- arrow store -> crm -->
+  <line x1="182" y1="95" x2="282" y2="95" stroke="#64748b" stroke-width="2" marker-end="url(#ar)"/>
+  <text x="232" y="85" text-anchor="middle" font-size="11" fill="#475569">events</text>
+  <text x="232" y="113" text-anchor="middle" font-size="10" fill="#64748b">(never lost,</text>
+  <text x="232" y="126" text-anchor="middle" font-size="10" fill="#64748b">never doubled)</text>
+  <!-- crm -->
+  <rect x="285" y="20" width="230" height="150" rx="12" fill="#e6f4f2" stroke="#0f766e" stroke-width="2"/>
+  <text x="400" y="48" text-anchor="middle" font-size="16" font-weight="bold" fill="#134e4a">Sabar Mart CRM</text>
+  <g font-size="11.5" fill="#134e4a">
+    <rect x="300" y="62" width="100" height="44" rx="6" fill="#fff" stroke="#99d5cc"/><text x="350" y="81" text-anchor="middle">Customers</text><text x="350" y="96" text-anchor="middle" font-size="9.5" fill="#475569">loyalty · tickets</text>
+    <rect x="400" y="62" width="100" height="44" rx="6" fill="#fff" stroke="#99d5cc"/><text x="450" y="81" text-anchor="middle">Vendors</text><text x="450" y="96" text-anchor="middle" font-size="9.5" fill="#475569">ledger · scores</text>
+    <rect x="300" y="110" width="100" height="44" rx="6" fill="#fff" stroke="#99d5cc"/><text x="350" y="129" text-anchor="middle">Affiliates</text><text x="350" y="144" text-anchor="middle" font-size="9.5" fill="#475569">clicks · payouts</text>
+    <rect x="400" y="110" width="100" height="44" rx="6" fill="#fff" stroke="#99d5cc"/><text x="450" y="129" text-anchor="middle">Teams</text><text x="450" y="144" text-anchor="middle" font-size="9.5" fill="#475569">tasks · audit</text>
+  </g>
+  <!-- db -->
+  <path d="M600,55 a55,14 0 0,0 110,0 a55,14 0 0,0 -110,0 v85 a55,14 0 0,0 110,0 v-85" fill="#fdf3e5" stroke="#b45309" stroke-width="1.5"/>
+  <text x="655" y="105" text-anchor="middle" font-size="13" font-weight="bold" fill="#7c2d12">MySQL</text>
+  <text x="655" y="122" text-anchor="middle" font-size="10.5" fill="#7c2d12">on MilesWeb</text>
+  <line x1="517" y1="95" x2="597" y2="95" stroke="#64748b" stroke-width="2" marker-end="url(#ar)"/>
+  <text x="557" y="85" text-anchor="middle" font-size="10.5" fill="#475569">saves</text>
+  <!-- teams -->
+  <line x1="400" y1="172" x2="400" y2="215" stroke="#64748b" stroke-width="2" marker-end="url(#ar)"/>
+  <text x="408" y="200" font-size="10.5" fill="#475569">the /docs screen, each person with their own key</text>
+  <g font-size="11.5" text-anchor="middle">
+    <rect x="20"  y="225" width="112" height="48" rx="8" fill="#fff" stroke="#cbd5e1"/><text x="76"  y="246" font-weight="bold">Support</text><text x="76" y="262" font-size="9.5" fill="#64748b">tickets · refunds</text>
+    <rect x="144" y="225" width="112" height="48" rx="8" fill="#fff" stroke="#cbd5e1"/><text x="200" y="246" font-weight="bold">Finance</text><text x="200" y="262" font-size="9.5" fill="#64748b">payouts · tax</text>
+    <rect x="268" y="225" width="112" height="48" rx="8" fill="#fff" stroke="#cbd5e1"/><text x="324" y="246" font-weight="bold">Vendor team</text><text x="324" y="262" font-size="9.5" fill="#64748b">onboarding · alerts</text>
+    <rect x="392" y="225" width="112" height="48" rx="8" fill="#fff" stroke="#cbd5e1"/><text x="448" y="246" font-weight="bold">Affiliates</text><text x="448" y="262" font-size="9.5" fill="#64748b">approve · assets</text>
+    <rect x="516" y="225" width="112" height="48" rx="8" fill="#fff" stroke="#cbd5e1"/><text x="572" y="246" font-weight="bold">Marketing</text><text x="572" y="262" font-size="9.5" fill="#64748b">masked data only</text>
+    <rect x="640" y="225" width="112" height="48" rx="8" fill="#fff" stroke="#cbd5e1"/><text x="696" y="246" font-weight="bold">Admin</text><text x="696" y="262" font-size="9.5" fill="#64748b">users · audit</text>
+  </g>
+  <text x="380" y="308" text-anchor="middle" font-size="10.5" fill="#64748b">Alerts (email or chat) go out when something breaks · a backup is taken every night</text>
+</svg>
+<figcaption><b>Figure 1.</b> The big picture. The store sends what happens to the CRM. The CRM keeps the records in your MilesWeb database. Each team works in the CRM through its own login.</figcaption>
+</figure>
+
+<h3>What it handles for you, automatically</h3>
+<table>
+  <tr><th style="width:24%">Area</th><th>Examples</th></tr>
+  <tr><td><b>Customers</b></td><td>Tracks each customer from signup to loyal and VIP, and notices abandoned carts. Awards loyalty points with reward milestones, routes support tickets to the right team, and recommends products (only to customers who agreed to marketing).</td></tr>
+  <tr><td><b>Vendors</b></td><td>Document checks and store setup steps, plus scorecards for fulfilment, late shipping, returns and reviews. A full money ledger: every sale, the commission, GST on commission, TCS and TDS, refunds and payouts.</td></tr>
+  <tr><td><b>Affiliates</b></td><td>Validates referral clicks, credits orders to the right affiliate, and pays tiered commission only after the 14-day return window. Takes commission back if a paid order is refunded later.</td></tr>
+  <tr><td><b>Teams</b></td><td>Raises alerts as tasks, for example a vendor below 3.5★ or a refund over ₹10,000. Gives each person their own key and logs who did what.</td></tr>
+</table>
+
+<div class="callout warn">
+  <b>The screen you'll use today</b>
+  Right now staff work in the CRM's built-in API screen, <span class="mono">/docs</span>, shown throughout this guide. It's a little technical,
+  but every button does exactly one job and each person only sees what their role allows. A friendlier dashboard can be built later on top of the same system.
+</div>
+</section>
+
+<!-- ============================== 2 ============================== -->
+<section class="chapter">
+<h2>2 · Getting started</h2>
+
+<h3>Step 1: open the CRM screen</h3>
+<p>Open your CRM address followed by <span class="mono">/docs</span> in Chrome, Edge or Firefox,
+for example <span class="mono">https://crm.sabarmart.com/docs</span>. You'll see the list of everything the CRM can do, grouped by area.</p>
+<figure>
+  <img class="short" src="img/01-docs-overview.png" alt="CRM API screen overview">
+  <figcaption><b>Figure 2.</b> The CRM screen. Each coloured bar is one action. <span class="pill get">GET</span> means
+  "look something up" and changes nothing. <span class="pill post">POST</span> and <span class="pill put">PUT</span> change data. The padlock means you need to be logged in.</figcaption>
+</figure>
+
+<h3>Step 2: log in with your key</h3>
+<ol class="steps">
+  <li>Click the green <b>Authorize</b> button at the top right.</li>
+  <li>Paste your personal key into <b>Value</b>. Your administrator gives you this key once; it starts with <span class="mono">smc_</span>.</li>
+  <li>Click <b>Authorize</b>, then <b>Close</b>. The padlocks now show as closed.</li>
+</ol>
+<figure>
+  <img class="tiny" src="img/02-authorize.png" alt="Authorize dialog">
+  <figcaption><b>Figure 3.</b> The login box. The demo key <span class="mono">demo-support</span> is shown here; yours will be a long random key.</figcaption>
+</figure>
+<div class="callout stop">
+  <b>Keep your key private</b>
+  Your key is your identity. Everything done with it is recorded in the audit log under your name. Never share it,
+  never put it in chat or email, and tell an admin straight away if you think someone else has it. They can switch it off in seconds.
+</div>
+</section>
+
+<section>
+<h3>Step 3: check who you are logged in as</h3>
+<p>Open <span class="pill get">GET</span> <span class="mono">/me</span>, click <b>Try it out</b>, then <b>Execute</b>.
+The answer shows your name, your role and everything you're allowed to do.</p>
+<figure>
+  <img class="short" src="img/03-me-support.png" alt="GET /me response">
+  <figcaption><b>Figure 4.</b> Logged in as <span class="mono">priya.support</span> with the <span class="mono">support_agent</span> role.</figcaption>
+</figure>
+
+<h3>How every action works: the same five clicks</h3>
+<ol class="steps">
+  <li>Click the bar of the action you need, for example <b>Customer Profile</b>, to open it.</li>
+  <li>Click <b>Try it out</b> on the right.</li>
+  <li>Fill in the boxes. Under <b>Parameters</b> that means IDs such as <span class="mono">C-1</span>. Where there's a <b>Request body</b>, edit the example text.</li>
+  <li>Click the big blue <b>Execute</b> button.</li>
+  <li>Read the answer under <b>Server response</b>: a <b>code</b> plus the <b>response body</b>.</li>
+</ol>
+
+<div class="keep"><h3>What the answer codes mean</h3>
+<table>
+  <tr><th style="width:14%">Code</th><th style="width:28%">Meaning</th><th>What to do</th></tr>
+  <tr><td><b>200 / 201 / 204</b></td><td>Done</td><td>Nothing; it worked. 201 means something new was created. 204 means done, with nothing to show.</td></tr>
+  <tr><td><b>401</b></td><td>Not logged in</td><td>Click Authorize and paste your key again. Your key may have been replaced.</td></tr>
+  <tr><td><b>403</b></td><td>Not allowed for your role</td><td>This is on purpose (see Figure 5). Ask the right team, or an admin if you think you need access.</td></tr>
+  <tr><td><b>404</b></td><td>Not found</td><td>Check the ID (customer, order, vendor) for typos.</td></tr>
+  <tr><td><b>409</b></td><td>A business rule said no</td><td>Read the <span class="mono">detail</span> message, e.g. "return window of 14 days has closed".</td></tr>
+  <tr><td><b>422</b></td><td>Something in the form is wrong</td><td>A box is missing or in the wrong format, e.g. a negative amount.</td></tr>
+  <tr><td><b>500</b></td><td>Unexpected error</td><td>Send the <span class="mono">error_id</span> to your admin. An alert has already gone to them automatically.</td></tr>
+</table></div>
+<figure>
+  <img class="tiny" src="img/14-forbidden.png" alt="403 forbidden example">
+  <figcaption><b>Figure 5.</b> A marketing user trying to open vendor payouts gets <b>403 Forbidden</b>: "role 'marketing' lacks permission 'vendor:ledger:view'".</figcaption>
+</figure>
+</section>
+
+<!-- ============================== 3 ============================== -->
+<section class="chapter">
+<h2>3 · Who can do what</h2>
+<p>Your key decides your role, and your role decides what you can see and do. Nobody can choose their own role.</p>
+<table class="small">
+  <tr><th style="width:34%">Task</th><th>Support</th><th>Finance</th><th>Vendor</th><th>Affiliate</th><th>Marketing</th><th>Admin</th></tr>
+  <tr><td>See customer profiles</td><td class="tick">✓</td><td class="dash">–</td><td class="dash">–</td><td class="dash">–</td><td class="tick">masked</td><td class="tick">✓</td></tr>
+  <tr><td>Ticket queue, request refunds</td><td class="tick">✓</td><td class="dash">–</td><td class="dash">–</td><td class="dash">–</td><td class="dash">–</td><td class="tick">✓</td></tr>
+  <tr><td>Approve large refunds</td><td class="dash">–</td><td class="tick">✓</td><td class="dash">–</td><td class="dash">–</td><td class="dash">–</td><td class="tick">✓</td></tr>
+  <tr><td>Vendor ledgers, payouts, tax report</td><td class="dash">–</td><td class="tick">✓</td><td class="dash">–</td><td class="dash">–</td><td class="dash">–</td><td class="tick">✓</td></tr>
+  <tr><td>Vendor onboarding and scorecards</td><td class="dash">–</td><td class="tick">view</td><td class="tick">✓</td><td class="dash">–</td><td class="dash">–</td><td class="tick">✓</td></tr>
+  <tr><td>Affiliates and marketing assets</td><td class="dash">–</td><td class="tick">payouts</td><td class="dash">–</td><td class="tick">✓</td><td class="tick">view</td><td class="tick">✓</td></tr>
+  <tr><td>Recommendations (with consent)</td><td class="dash">–</td><td class="dash">–</td><td class="dash">–</td><td class="dash">–</td><td class="tick">✓</td><td class="tick">✓</td></tr>
+  <tr><td>Customer data export (DPDP)</td><td class="tick">✓</td><td class="dash">–</td><td class="dash">–</td><td class="dash">–</td><td class="dash">–</td><td class="tick">✓</td></tr>
+  <tr><td>Erase a customer (DPDP)</td><td class="dash">–</td><td class="dash">–</td><td class="dash">–</td><td class="dash">–</td><td class="dash">–</td><td class="tick">✓</td></tr>
+  <tr><td>Users, audit log, analytics</td><td class="dash">–</td><td class="dash">–</td><td class="dash">–</td><td class="dash">–</td><td class="dash">–</td><td class="tick">✓</td></tr>
+  <tr><td>Own task queue</td><td class="tick">support, trust &amp; safety</td><td class="tick">finance</td><td class="tick">vendor success</td><td class="tick">affiliate ops</td><td class="dash">–</td><td class="tick">all</td></tr>
+</table>
+<p class="small muted">There's also a <span class="mono">system</span> role. It's used only by the store's backend to send events, and it can't read any data.</p>
+
+<div class="two">
+  <figure>
+    <img src="img/11-support-customer.png" alt="Support view of a customer">
+    <figcaption><b>Figure 6a.</b> Support sees Asha's real email and phone number.</figcaption>
+  </figure>
+  <figure>
+    <img src="img/13-marketing-customer.png" alt="Marketing view of a customer">
+    <figcaption><b>Figure 6b.</b> Marketing sees the same customer with her email and phone hidden: <span class="mono">a***@example.com</span>, <span class="mono">********01</span>.</figcaption>
+  </figure>
+</div>
+</section>
+
+<!-- ============================== 4 ============================== -->
+<section class="chapter">
+<h2>4 · Support team</h2>
+<h3>Your ticket queue</h3>
+<p>Open <b>support › GET /tickets</b>, then <b>Try it out › Execute</b>. Tickets are already sorted, most urgent first. The CRM reads each message
+and sets its <b>priority</b>, its <b>team</b> and the <b>reasons</b> for that choice.</p>
+<figure>
+  <img class="short" src="img/10-support-tickets.png" alt="Ticket queue">
+  <figcaption><b>Figure 7.</b> The queue. "Unauthorized charge … hacked" became <b>critical</b> and went to <b>trust_and_safety</b>. An angry "broken, want refund" message became <b>high</b> and went to <b>returns_and_refunds</b>.</figcaption>
+</figure>
+<table class="small">
+  <tr><th style="width:30%">The CRM sees…</th><th>It does…</th></tr>
+  <tr><td>fraud, hacked, unauthorized, legal, police</td><td><b>Critical</b>; goes to trust &amp; safety, and an urgent task is raised automatically</td></tr>
+  <tr><td>payment, charged, card, UPI</td><td>Goes to the payments team</td></tr>
+  <tr><td>refund, return, exchange</td><td>Goes to returns &amp; refunds</td></tr>
+  <tr><td>delivery, courier, late, missing</td><td>Goes to logistics</td></tr>
+  <tr><td>angry words, a high-value order, a loyal or VIP customer</td><td>Priority is raised; VIP general questions go to the VIP concierge</td></tr>
+</table>
+
+<h3>Look up a customer</h3>
+<p>Open <b>customers › GET /customers/{customer_id}</b> and enter the customer's ID. You'll see their stage (e.g. <i>loyal</i>), lifetime value,
+loyalty points, marketing consent and open tickets (see Figure 6a).</p>
+</section>
+
+<section>
+<h3>Give a customer a refund</h3>
+<p>Open <b>refunds › POST /orders/{order_id}/refunds</b>, enter the order ID, and in the request body type the <b>amount</b> and a short <b>reason</b>.</p>
+<figure>
+  <img class="short" src="img/12-support-refund.png" alt="Refund request">
+  <figcaption><b>Figure 8.</b> A ₹500 refund on order O-1 for "Item arrived scratched". Because it's under ₹10,000, it was <b>approved</b> straight away
+  (<span class="mono">decided_by: auto</span>). The vendor's balance and the customer's loyalty points were adjusted at once.</figcaption>
+</figure>
+<div class="callout">
+  <b>Refund rules to know</b>
+  <ul style="margin:0">
+    <li><b>Over ₹10,000:</b> the refund waits for finance to approve it. You can't approve your own request.</li>
+    <li><b>Delivered orders only:</b> an order that hasn't been delivered yet should be <i>cancelled</i> instead.</li>
+    <li><b>No more than was paid:</b> you can never refund more than the customer paid, and refunds still waiting for approval count against that amount.</li>
+  </ul>
+</div>
+<h3>A customer asks "what data do you hold about me?"</h3>
+<p>Open <b>privacy › GET /customers/{customer_id}/export</b>. The answer contains everything held about them: profile, consent, orders, refunds,
+tickets and browsing. Click <b>Download</b> and send them the file through your normal secure channel. The export is recorded in the audit log.</p>
+<figure>
+  <img class="short" src="img/40-privacy-export.png" alt="Customer data export">
+  <figcaption><b>Figure 9.</b> A data export for customer C-1. Deleting data ("erasure") is for admins only; see section 7.</figcaption>
+</figure>
+</section>
+
+<!-- ============================== 5 ============================== -->
+<section class="chapter">
+<h2>5 · Finance team</h2>
+<h3>Approve or reject large refunds</h3>
+<p>Every refund over ₹10,000 appears as a <b>pending_review</b> refund and as a task in the <b>finance</b> queue.</p>
+<figure>
+<svg viewBox="0 0 760 175" xmlns="http://www.w3.org/2000/svg" font-family="Liberation Sans, Arial, sans-serif">
+  <defs><marker id="a2" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#64748b"/></marker></defs>
+  <rect x="10" y="60" width="150" height="54" rx="9" fill="#eaf1fe" stroke="#2563eb"/><text x="85" y="83" text-anchor="middle" font-size="13" font-weight="bold" fill="#1e3a8a">Support asks</text><text x="85" y="101" text-anchor="middle" font-size="10.5" fill="#334155">amount + reason</text>
+  <line x1="162" y1="87" x2="222" y2="87" stroke="#64748b" stroke-width="2" marker-end="url(#a2)"/>
+  <polygon points="300,42 378,87 300,132 222,87" fill="#fff" stroke="#94a3b8" stroke-width="1.5"/><text x="300" y="84" text-anchor="middle" font-size="12" font-weight="bold">over</text><text x="300" y="99" text-anchor="middle" font-size="12" font-weight="bold">₹10,000?</text>
+  <line x1="300" y1="42" x2="300" y2="22" stroke="#64748b" stroke-width="2"/><line x1="300" y1="22" x2="440" y2="22" stroke="#64748b" stroke-width="2" marker-end="url(#a2)"/><text x="315" y="16" font-size="11" fill="#0f766e" font-weight="bold">no</text>
+  <rect x="443" y="5" width="300" height="36" rx="8" fill="#e6f4f2" stroke="#0f766e"/><text x="593" y="28" text-anchor="middle" font-size="12" fill="#134e4a"><tspan font-weight="bold">Approved at once</tspan> · money moves now</text>
+  <line x1="378" y1="87" x2="440" y2="87" stroke="#64748b" stroke-width="2" marker-end="url(#a2)"/><text x="392" y="80" font-size="11" fill="#b45309" font-weight="bold">yes</text>
+  <rect x="443" y="62" width="150" height="50" rx="8" fill="#fdf3e5" stroke="#b45309"/><text x="518" y="83" text-anchor="middle" font-size="12" font-weight="bold" fill="#7c2d12">Waits for finance</text><text x="518" y="100" text-anchor="middle" font-size="10" fill="#7c2d12">task in finance queue</text>
+  <line x1="595" y1="78" x2="640" y2="64" stroke="#64748b" stroke-width="2" marker-end="url(#a2)"/>
+  <line x1="595" y1="96" x2="640" y2="112" stroke="#64748b" stroke-width="2" marker-end="url(#a2)"/>
+  <rect x="643" y="47" width="100" height="32" rx="7" fill="#e6f4f2" stroke="#0f766e"/><text x="693" y="68" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#134e4a">Approve</text>
+  <rect x="643" y="97" width="100" height="32" rx="7" fill="#fdecec" stroke="#b91c1c"/><text x="693" y="118" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#7f1d1d">Reject</text>
+  <text x="380" y="160" text-anchor="middle" font-size="10.5" fill="#64748b">The person who asked for a refund can never approve it · nothing moves while it waits</text>
+</svg>
+<figcaption><b>Figure 10.</b> How a refund is decided.</figcaption>
+</figure>
+<ol class="steps">
+  <li>Open <b>refunds › GET /refunds</b>, type <span class="mono">pending_review</span> in <b>status</b>, and Execute to see what's waiting.</li>
+  <li>Check the order and the reason. If it's fine, open <b>POST /refunds/{refund_id}/approve</b>, enter the refund ID and Execute.
+      If not, use <b>/reject</b> instead.</li>
+</ol>
+<figure>
+  <img class="short" src="img/21-finance-approve.png" alt="Refund approved by finance">
+  <figcaption><b>Figure 11.</b> An ₹18,000 refund requested by support, approved by <span class="mono">arjun.finance</span>. Its finance task is closed automatically.</figcaption>
+</figure>
+</section>
+
+<section>
+<h3>Where the money from a sale goes</h3>
+<p>Sabar Mart prices <b>include GST</b>. When an order is delivered, the CRM records the sale and everything withheld from it.
+Here is a real example: a ₹1,180 kurta with 18% GST.</p>
+<figure>
+<svg viewBox="0 0 760 250" xmlns="http://www.w3.org/2000/svg" font-family="Liberation Sans, Arial, sans-serif">
+  <text x="10" y="22" font-size="13" font-weight="bold" fill="#0b1f33">Customer pays ₹1,180.00 (GST included)</text>
+  <rect x="10" y="34" width="740" height="44" rx="6" fill="#e2e8f0"/>
+  <rect x="10" y="34" width="648.9" height="44" rx="6" fill="#0f766e"/>
+  <rect x="658.9" y="34" width="74" height="44" fill="#b45309"/>
+  <rect x="732.9" y="34" width="13.3" height="44" fill="#d97706"/>
+  <rect x="746.2" y="34" width="3.8" height="44" fill="#7c3aed"/>
+  <text x="334" y="61" text-anchor="middle" font-size="14" font-weight="bold" fill="#fff">Vendor receives ₹1,034.76</text>
+  <text x="696" y="61" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#fff">₹118</text>
+  <line x1="696" y1="80" x2="696" y2="100" stroke="#b45309"/><line x1="739" y1="80" x2="739" y2="128" stroke="#d97706"/><line x1="748" y1="80" x2="748" y2="156" stroke="#7c3aed"/>
+  <g font-size="11.5">
+    <text x="690" y="114" text-anchor="end" fill="#7c2d12"><tspan font-weight="bold">Commission ₹118.00</tspan> (10% of the price, Sabar Mart's fee)</text>
+    <text x="733" y="142" text-anchor="end" fill="#92400e"><tspan font-weight="bold">GST on commission ₹21.24</tspan> (18% of ₹118)</text>
+    <text x="742" y="170" text-anchor="end" fill="#5b21b6"><tspan font-weight="bold">TCS ₹5.00 + TDS ₹1.00</tspan> (0.5% and 0.1% of the ₹1,000 taxable value)</text>
+  </g>
+  <rect x="10" y="190" width="740" height="52" rx="8" fill="#f8fafc" stroke="#e2e8f0"/>
+  <text x="24" y="211" font-size="11" fill="#334155"><tspan font-weight="bold">Taxable value</tspan> = price ÷ (1 + GST rate) = 1,180 ÷ 1.18 = ₹1,000.00. TCS and TDS are worked out on this, not on the full price.</text>
+  <text x="24" y="230" font-size="11" fill="#334155">If the vendor's PAN card isn't verified, TDS is 5% instead of 0.1% (₹50.00 here). Confirm all rates with your CA.</text>
+</svg>
+<figcaption><b>Figure 12.</b> The split of one sale, exactly as the CRM's ledger records it. Each product carries its own GST rate, and an order keeps the rate it was sold at.</figcaption>
+</figure>
+
+<h3>Vendor balance and payouts</h3>
+<p>Open <b>finance › GET /vendors/{vendor_id}/ledger</b>. <b>payable_now</b> is what you can pay today. Money from orders still inside the
+14-day return window is held back (<b>held_in_return_window</b>), because the customer could still return them.</p>
+<figure>
+  <img class="short" src="img/22-finance-ledger.png" alt="Vendor ledger">
+  <figcaption><b>Figure 13.</b> Ledger for Kiran Textiles: gross sales, refunds, commission, GST on commission, TCS, TDS, the amount held and the amount payable now.</figcaption>
+</figure>
+<p>To pay a vendor, use <b>POST /vendors/{vendor_id}/payouts</b>. It pays <i>payable_now</i>, at most once every 7 days, and only to verified vendors.</p>
+</section>
+
+<section>
+<h3>Tax report for filing</h3>
+<p>Open <b>finance › GET /finance/tax-report</b> and give a <b>start</b> and <b>end</b> date, e.g. the first day of this month and of next month. For each vendor it shows sales
+including GST, the taxable value, TCS collected, TDS deducted, and commission with its GST. Use these figures for GSTR-8 and the 194-O return.</p>
+<figure>
+  <img class="short" src="img/23-finance-tax.png" alt="Tax report">
+  <figcaption><b>Figure 14.</b> The tax report, one block per vendor. No dates were entered here, so it covers all time. The end of the answer (scroll down in the CRM) also lists the totals and the rates that were used.</figcaption>
+</figure>
+<div class="callout warn">
+  <b>Confirm the rates with your Chartered Accountant</b>
+  The default rates are TCS 0.5%, TDS 0.1% (5% without a PAN) and 18% GST on commission. They follow the law as it stood in late 2024, and they live in one settings file
+  (<span class="mono">config.py</span>). Have your CA confirm them before go-live, and again after any Budget change. Threshold exemptions are not modelled.
+</div>
+
+<h3>Affiliate payouts</h3>
+<p>Open <b>GET /affiliates/{affiliate_id}/payout-preview</b> to see what a payout would pay right now. If it's right, run <b>POST /affiliates/{affiliate_id}/payouts</b>.</p>
+<figure>
+  <img class="short" src="img/24-finance-affiliate-preview.png" alt="Affiliate payout preview">
+  <figcaption><b>Figure 15.</b> Affiliate A-1 (Bronze tier, 3%) is owed <b>₹60.00</b>. The referred order was ₹2,500, but support refunded ₹500 on it (Figure 8),
+  so commission is paid on the ₹2,000 that was actually kept. Refunds always reduce affiliate commission automatically.</figcaption>
+</figure>
+<ul>
+  <li><b>Paid once:</b> each order's commission is paid only once. Running a payout again pays only what's new.</li>
+  <li><b>Clawbacks:</b> if a paid order is refunded later, the next payout automatically deducts the difference.</li>
+  <li><b>Tiers:</b> Bronze 3%, Silver 5% (25+ completed orders), Gold 7% (100+) and Platinum 10% (500+). An order's rate is fixed when it's first paid.</li>
+</ul>
+</section>
+
+<!-- ============================== 6 ============================== -->
+<section class="chapter">
+<h2>6 · Vendor team</h2>
+<h3>Onboarding a new vendor</h3>
+<ol class="steps">
+  <li><b>POST /vendors</b>: create the vendor with an ID, store name and contact email.</li>
+  <li><b>PUT /vendors/{id}/documents/{doc}</b>: record each document when it's received. The documents are business_registration, tax_id, pan_card, bank_details and identity_proof.</li>
+  <li><b>POST …/documents/{doc}/review</b>: approve or reject each one, with <span class="mono">{"approved": true}</span> or <span class="mono">{"approved": false}</span>.</li>
+  <li><b>PUT /vendors/{id}/milestones/{m}</b>: tick off each store setup step: profile_completed, first_product_listed, shipping_configured and payout_account_linked.</li>
+  <li><b>GET /vendors/{id}</b> shows the progress, what's still missing (<span class="mono">next_actions</span>) and whether the vendor can go live.</li>
+</ol>
+<figure>
+  <img class="short" src="img/31-vendor-scorecard.png" alt="Vendor scorecard with onboarding status">
+  <figcaption><b>Figure 16.</b> "Fresh Spices Co" is <b>under_review</b>: its tax ID is pending and four documents are missing, so <span class="mono">can_go_live</span> is false. The next actions tell you what to chase.</figcaption>
+</figure>
+</section>
+
+<section>
+<h3>Your alerts: the vendor_success queue</h3>
+<p>Open <b>internal › GET /tasks</b> with team <span class="mono">vendor_success</span>. The CRM raises these tasks by itself. The same problem never creates a duplicate task;
+the existing task is updated instead. When you've dealt with one, close it with <b>POST /tasks/{task_id}/resolve</b>.</p>
+<figure>
+  <img class="short" src="img/30-vendor-tasks.png" alt="Vendor success task queue">
+  <figcaption><b>Figure 17.</b> QuickGadgets was flagged for an average review below 3.5★, late shipping and too many returns.</figcaption>
+</figure>
+<table class="small">
+  <tr><th>Alert</th><th>When</th><th>Priority</th></tr>
+  <tr><td>Low review score</td><td>Average review below 3.5★</td><td>High</td></tr>
+  <tr><td>Low fulfilment</td><td>Fewer than 95% of orders fulfilled (too many cancellations)</td><td>High</td></tr>
+  <tr><td>Shipping delays</td><td>More than 10% of shipments late</td><td>Medium</td></tr>
+  <tr><td>High returns</td><td>More than 15% of delivered orders returned</td><td>Medium</td></tr>
+</table>
+<p class="small muted">While a vendor is flagged, their products are left out of customer recommendations.</p>
+</section>
+
+<!-- ============================== 7 ============================== -->
+<section class="chapter">
+<h2>7 · Admin and privacy</h2>
+<h3>Give a new team member access</h3>
+<p>Open <b>admin › POST /users</b> and enter a username and a role. The answer contains their <b>API key</b>.
+<b>It's shown only this once.</b> Pass it to the person securely; the CRM keeps only a scrambled copy.</p>
+<figure>
+  <img class="short" src="img/50-admin-create-user.png" alt="Creating a user">
+  <figcaption><b>Figure 18.</b> Creating <span class="mono">neha.support</span> with the support_agent role. The key in the answer is what she pastes into Authorize.</figcaption>
+</figure>
+<table class="small">
+  <tr><th style="width:38%">When…</th><th>Do this</th></tr>
+  <tr><td>Someone lost their key, or it may be exposed</td><td><b>POST /users/{name}/rotate-key</b>. The old key stops working at once.</td></tr>
+  <tr><td>Someone leaves the company</td><td><b>POST /users/{name}/deactivate</b>, the same day</td></tr>
+  <tr><td>You want to see who has access</td><td><b>GET /users</b></td></tr>
+</table>
+</section>
+
+<section>
+<h3>Audit log: who did what</h3>
+<p><b>GET /audit</b> lists the latest actions. Filter by person with <span class="mono">actor</span>. It records every change, every refused attempt,
+and every look at sensitive data such as customer details, ledgers, payouts and tax reports.</p>
+<figure>
+  <img class="short" src="img/51-admin-audit.png" alt="Audit log">
+  <figcaption><b>Figure 19.</b> The most recent audit entries: the time, the person, their role, what they did and whether it worked.</figcaption>
+</figure>
+
+<h3>Business overview</h3>
+<p><b>GET /analytics</b> gives the whole picture: customers by stage, abandoned carts and marketing opt-ins; orders by status; revenue net of refunds; commission and taxes withheld;
+flagged vendors; affiliate sales; open tickets; and open tasks.</p>
+<figure>
+  <img class="short" src="img/52-admin-analytics.png" alt="Analytics">
+  <figcaption><b>Figure 20.</b> The analytics overview for the demo marketplace.</figcaption>
+</figure>
+</section>
+
+<section>
+<h3>Privacy requests (DPDP Act 2023)</h3>
+<table class="small">
+  <tr><th style="width:24%">Request</th><th>How</th><th style="width:16%">Who</th></tr>
+  <tr><td>"Stop sending me offers"</td><td><b>POST /customers/{id}/consent</b> with <span class="mono">{"marketing": false, "source": "phone_request"}</span>. The store's unsubscribe link does the same automatically.</td><td>Support</td></tr>
+  <tr><td>"What do you hold about me?"</td><td><b>GET /customers/{id}/export</b> (Figure 9)</td><td>Support</td></tr>
+  <tr><td>"Delete my data"</td><td><b>POST /customers/{id}/erase</b>. The name, email, phone, browsing, ticket text and refund reasons are wiped. Orders and the money ledger are <b>kept without the name</b>, because tax law requires those records.</td><td>Admin only</td></tr>
+</table>
+<div class="callout stop">
+  <b>Erasure can't be undone</b>
+  The CRM refuses to erase someone who still has orders on the way or refunds waiting for a decision, or an affiliate who is still owed commission. Finish those first.
+  After an erasure the store can't add new activity for that customer. Older backups still contain the data until they are deleted on schedule.
+</div>
+<p class="small muted">Outside the CRM you also need a published privacy notice, a grievance officer, and to answer requests within the timelines you promise.</p>
+</section>
+
+<!-- ============================== 8 ============================== -->
+<section class="chapter">
+<h2>8 · Connecting the Node.js store</h2>
+<p class="muted">For the store developer.</p>
+<p>The store sends the CRM a short message, an <b>event</b>, every time something happens: a signup, an order, a delivery and so on. The package in
+<span class="mono">sabar-mart-crm/clients/node</span> does the hard parts. If the CRM is down, checkout keeps working and nothing is lost, and nothing is ever counted twice.</p>
+<figure>
+<svg viewBox="0 0 760 215" xmlns="http://www.w3.org/2000/svg" font-family="Liberation Sans, Arial, sans-serif">
+  <defs><marker id="a3" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#64748b"/></marker></defs>
+  <rect x="10" y="30" width="230" height="120" rx="10" fill="#eaf1fe" stroke="#2563eb" stroke-dasharray="5 3"/>
+  <text x="125" y="50" text-anchor="middle" font-size="11" fill="#1e3a8a" font-weight="bold">ONE database transaction</text>
+  <rect x="28" y="62" width="194" height="34" rx="6" fill="#fff" stroke="#93c5fd"/><text x="125" y="84" text-anchor="middle" font-size="12">save the order row</text>
+  <rect x="28" y="104" width="194" height="34" rx="6" fill="#fff" stroke="#93c5fd"/><text x="125" y="126" text-anchor="middle" font-size="12">save the CRM event (outbox)</text>
+  <line x1="242" y1="121" x2="300" y2="121" stroke="#64748b" stroke-width="2" marker-end="url(#a3)"/>
+  <rect x="303" y="96" width="150" height="50" rx="8" fill="#fdf3e5" stroke="#b45309"/><text x="378" y="117" text-anchor="middle" font-size="12" font-weight="bold" fill="#7c2d12">Outbox worker</text><text x="378" y="134" text-anchor="middle" font-size="10" fill="#7c2d12">in order · retries</text>
+  <line x1="455" y1="121" x2="535" y2="121" stroke="#64748b" stroke-width="2" marker-end="url(#a3)"/><text x="495" y="112" text-anchor="middle" font-size="10.5" fill="#475569">POST /events</text>
+  <rect x="538" y="90" width="210" height="62" rx="10" fill="#e6f4f2" stroke="#0f766e" stroke-width="1.5"/><text x="643" y="114" text-anchor="middle" font-size="13" font-weight="bold" fill="#134e4a">CRM</text><text x="643" y="132" text-anchor="middle" font-size="10" fill="#134e4a">ok · replayed (already had it)</text>
+  <text x="378" y="176" text-anchor="middle" font-size="10.5" fill="#64748b">CRM down? Events wait in the outbox and are sent when it's back.</text>
+  <text x="378" y="194" text-anchor="middle" font-size="10.5" fill="#64748b">Sent twice? The CRM recognises the event id and does nothing the second time.</text>
+  <text x="125" y="172" text-anchor="middle" font-size="10.5" fill="#64748b">checkout never waits for the CRM</text>
+</svg>
+<figcaption><b>Figure 21.</b> The "outbox" pattern used by the Node.js package. The event is saved with the order, then a background worker delivers it.</figcaption>
+</figure>
+<div class="keep"><h3>Setup, in three steps</h3>
+<ol class="steps">
+  <li>Install the package and <span class="mono">mysql2</span>, and create the outbox table in the <b>store's</b> database from <span class="mono">clients/node/sql/outbox.mysql.sql</span>.</li>
+  <li>Ask the CRM admin for a key with the <span class="mono">system</span> role.</li>
+  <li>Start the worker once when the app boots, and add events inside your existing database transactions:</li>
+</ol>
+<pre>const { CrmClient, MysqlOutboxStore, OutboxWorker, events } = require('@sabarmart/crm-client');
+
+const crm    = new CrmClient({ baseUrl: process.env.CRM_URL, apiKey: process.env.CRM_API_KEY });
+const outbox = new MysqlOutboxStore(pool);                  // your mysql2/promise pool
+new OutboxWorker({ client: crm, store: outbox }).start();   // safe in every Node process
+
+// inside the checkout transaction (conn = that transaction's connection):
+await conn.query('INSERT INTO order_lines ...', [...]);
+await outbox.enqueue([events.orderPlaced({
+  orderId: 'L-1001', customerId: 'C-1', productId: 'P-1', amount: '1180.00',  // GST included
+})], conn);</pre></div>
+<table class="small">
+  <tr><th style="width:36%">Send this event…</th><th>…when</th></tr>
+  <tr><td><span class="mono">customerRegistered</span></td><td>An account is created. Set <span class="mono">marketingConsent: true</span> only if they ticked the opt-in box.</td></tr>
+  <tr><td><span class="mono">productUpserted</span></td><td>A product is added or changed. Always include <span class="mono">gstRate</span>, e.g. "0.18".</td></tr>
+  <tr><td><span class="mono">orderPlaced</span> / <span class="mono">orderShipped</span> / <span class="mono">orderDelivered</span> / <span class="mono">orderReturned</span> / <span class="mono">orderCancelled</span></td><td>For each order line, as it moves through delivery</td></tr>
+  <tr><td><span class="mono">customerBrowsed</span>, <span class="mono">cartItemAdded</span>, <span class="mono">cartItemRemoved</span></td><td>Shopping activity</td></tr>
+  <tr><td><span class="mono">referralClicked</span></td><td>A product page is opened with <span class="mono">?ref=CODE</span></td></tr>
+  <tr><td><span class="mono">vendorReviewed</span>, <span class="mono">ticketCreated</span>, <span class="mono">customerConsentUpdated</span></td><td>Reviews, support messages, marketing opt-in or opt-out</td></tr>
+</table>
+<p class="small">A full Express example with every hook point is in <span class="mono">clients/node/examples/express-integration.js</span>.
+Vendors must already exist in the CRM before their products arrive. The vendor team creates them (section 6).</p>
+</section>
+
+<!-- ============================== 9 ============================== -->
+<section class="chapter">
+<h2>9 · Putting it live on MilesWeb</h2>
+<p>The CRM runs on MilesWeb cPanel hosting using <b>Setup Python App</b> and a <b>MySQL database</b>. The full step-by-step guide, with exact commands, is in
+<span class="mono">sabar-mart-crm/DEPLOY_MILESWEB.md</span>. Here is the overview.</p>
+<figure>
+<svg viewBox="0 0 760 250" xmlns="http://www.w3.org/2000/svg" font-family="Liberation Sans, Arial, sans-serif">
+  <defs><marker id="a4" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#94a3b8"/></marker></defs>
+  <g font-size="11">
+    <g transform="translate(10,20)"><rect width="170" height="88" rx="9" fill="#fff" stroke="#0f766e"/><circle cx="22" cy="22" r="13" fill="#0f766e"/><text x="22" y="27" text-anchor="middle" fill="#fff" font-weight="bold">1</text><text x="44" y="27" font-weight="bold" font-size="12">Create database</text><text x="14" y="52" fill="#475569">cPanel › MySQL Database</text><text x="14" y="68" fill="#475569">Wizard: database + user</text></g>
+    <g transform="translate(200,20)"><rect width="170" height="88" rx="9" fill="#fff" stroke="#0f766e"/><circle cx="22" cy="22" r="13" fill="#0f766e"/><text x="22" y="27" text-anchor="middle" fill="#fff" font-weight="bold">2</text><text x="44" y="27" font-weight="bold" font-size="12">Upload the code</text><text x="14" y="52" fill="#475569">Git Version Control or File</text><text x="14" y="68" fill="#475569">Manager, outside public_html</text></g>
+    <g transform="translate(390,20)"><rect width="170" height="88" rx="9" fill="#fff" stroke="#0f766e"/><circle cx="22" cy="22" r="13" fill="#0f766e"/><text x="22" y="27" text-anchor="middle" fill="#fff" font-weight="bold">3</text><text x="44" y="27" font-weight="bold" font-size="12">Setup Python App</text><text x="14" y="52" fill="#475569">Python 3.11 · startup file</text><text x="14" y="68" fill="#475569">passenger_wsgi.py</text></g>
+    <g transform="translate(580,20)"><rect width="170" height="88" rx="9" fill="#fff" stroke="#0f766e"/><circle cx="22" cy="22" r="13" fill="#0f766e"/><text x="22" y="27" text-anchor="middle" fill="#fff" font-weight="bold">4</text><text x="44" y="27" font-weight="bold" font-size="12">Settings + install</text><text x="14" y="52" fill="#475569">environment variables,</text><text x="14" y="68" fill="#475569">Run Pip Install</text></g>
+    <g transform="translate(10,140)"><rect width="170" height="88" rx="9" fill="#fff" stroke="#0f766e"/><circle cx="22" cy="22" r="13" fill="#0f766e"/><text x="22" y="27" text-anchor="middle" fill="#fff" font-weight="bold">5</text><text x="44" y="27" font-weight="bold" font-size="12">Tables + people</text><text x="14" y="52" fill="#475569">db init · user-add for</text><text x="14" y="68" fill="#475569">each team member</text></g>
+    <g transform="translate(200,140)"><rect width="170" height="88" rx="9" fill="#fff" stroke="#0f766e"/><circle cx="22" cy="22" r="13" fill="#0f766e"/><text x="22" y="27" text-anchor="middle" fill="#fff" font-weight="bold">6</text><text x="44" y="27" font-weight="bold" font-size="12">Restart + HTTPS</text><text x="14" y="52" fill="#475569">Restart app · Run AutoSSL</text><text x="14" y="68" fill="#475569">· open /health</text></g>
+    <g transform="translate(390,140)"><rect width="170" height="88" rx="9" fill="#fff" stroke="#0f766e"/><circle cx="22" cy="22" r="13" fill="#0f766e"/><text x="22" y="27" text-anchor="middle" fill="#fff" font-weight="bold">7</text><text x="44" y="27" font-weight="bold" font-size="12">Nightly jobs</text><text x="14" y="52" fill="#475569">cPanel › Cron Jobs:</text><text x="14" y="68" fill="#475569">backup + purge</text></g>
+    <g transform="translate(580,140)"><rect width="170" height="88" rx="9" fill="#fff" stroke="#0f766e"/><circle cx="22" cy="22" r="13" fill="#0f766e"/><text x="22" y="27" text-anchor="middle" fill="#fff" font-weight="bold">8</text><text x="44" y="27" font-weight="bold" font-size="12">Monitoring</text><text x="14" y="52" fill="#475569">alert email + uptime</text><text x="14" y="68" fill="#475569">check on /health?deep=true</text></g>
+    <line x1="182" y1="64" x2="198" y2="64" stroke="#94a3b8" stroke-width="2" marker-end="url(#a4)"/>
+    <line x1="372" y1="64" x2="388" y2="64" stroke="#94a3b8" stroke-width="2" marker-end="url(#a4)"/>
+    <line x1="562" y1="64" x2="578" y2="64" stroke="#94a3b8" stroke-width="2" marker-end="url(#a4)"/>
+    <path d="M665,110 V124 H95 V136" fill="none" stroke="#94a3b8" stroke-width="2" marker-end="url(#a4)"/>
+    <line x1="182" y1="184" x2="198" y2="184" stroke="#94a3b8" stroke-width="2" marker-end="url(#a4)"/>
+    <line x1="372" y1="184" x2="388" y2="184" stroke="#94a3b8" stroke-width="2" marker-end="url(#a4)"/>
+    <line x1="562" y1="184" x2="578" y2="184" stroke="#94a3b8" stroke-width="2" marker-end="url(#a4)"/>
+  </g>
+</svg>
+<figcaption><b>Figure 22.</b> The eight deployment steps (a diagram, not a cPanel screenshot). If <i>Setup Python App</i> is missing in your cPanel, ask MilesWeb support to enable it or move your account.</figcaption>
+</figure>
+<div class="keep"><h3>The settings (environment variables)</h3>
+<table class="small">
+  <tr><th style="width:34%">Name</th><th>What to put</th></tr>
+  <tr><td><span class="mono">DATABASE_URL</span></td><td><span class="mono">mysql+pymysql://USER:PASSWORD@localhost/DBNAME?charset=utf8mb4</span>. URL-encode special characters in the password.</td></tr>
+  <tr><td><span class="mono">SABAR_CRM_API_KEYS</span></td><td>The store's key: <span class="mono">LONGRANDOMKEY:system:storefront</span>. People get personal keys with <span class="mono">user-add</span> instead.</td></tr>
+  <tr><td><span class="mono">SABAR_CRM_ALERT_EMAIL</span> + <span class="mono">SABAR_CRM_SMTP_*</span></td><td>Who gets error alerts, and a cPanel mailbox to send them from</td></tr>
+  <tr><td><span class="mono">SABAR_CRM_DOCS</span></td><td>Leave unset (on) while staff use the /docs screen. The page itself shows no data without a key.</td></tr>
+</table></div>
+<div class="keep"><h3>Create the first admin and the team</h3>
+<pre>python -m sabar_mart_crm.db init                      # creates the tables
+python -m sabar_mart_crm.db user-add yourname admin     # prints your key, shown once
+python -m sabar_mart_crm.db user-add priya finance
+python -m sabar_mart_crm.db user-add rahul support_agent</pre></div>
+</section>
+
+<!-- ============================== 10 ============================== -->
+<section class="chapter">
+<h2>10 · Backups, alerts and troubleshooting</h2>
+<div class="keep"><h3>Nightly backups</h3>
+<p>In <b>cPanel › Cron Jobs</b> add two daily jobs. Settings are read from a private file, <span class="mono">~/.sabar-crm.env</span> (chmod 600); see DEPLOY_MILESWEB.md step 7.</p>
+<table class="small">
+  <tr><th style="width:22%">When</th><th>Command</th></tr>
+  <tr><td>Daily 02:30</td><td><span class="mono">/home/cpuser/sabar-mart-crm/scripts/cron.sh backup</span></td></tr>
+  <tr><td>Daily 03:15</td><td><span class="mono">/home/cpuser/sabar-mart-crm/scripts/cron.sh purge</span></td></tr>
+</table></div>
+<ul>
+  <li><b>What a backup is:</b> a single compressed file holding the whole CRM, readable only by your account. It's checked after it's written. The newest 14 are kept.</li>
+  <li><b>If one fails:</b> an alert email is sent.</li>
+  <li><b>Copy them off the server</b> every week. A backup on the same server doesn't help if the account is lost.</li>
+  <li><b>To restore</b> into an empty database: <span class="mono">python -m sabar_mart_crm.db restore FILE</span>.</li>
+</ul>
+
+<h3>Alerts and health checks</h3>
+<ul>
+  <li><b>Crashes:</b> if something crashes, the admin gets an email with an <b>error id</b>. The person who hit the error sees the same id, so you can match them up. The same problem alerts at most once every 15 minutes.</li>
+  <li><b>Uptime monitor:</b> point a free monitor such as UptimeRobot at <span class="mono">https://crm.sabarmart.com/health?deep=true</span>. It answers 200 when everything is up, and 503 when the database can't be reached.</li>
+  <li><b>Store sync:</b> the store developer should watch <span class="mono">outbox.stats()</span>. <span class="mono">pending</span> should stay near 0, and <span class="mono">dead</span> should be 0.</li>
+</ul>
+
+<div class="keep"><h3>Troubleshooting</h3>
+<table class="small">
+  <tr><th style="width:34%">Problem</th><th>Likely cause and fix</th></tr>
+  <tr><td>401 on every action</td><td>Not logged in, or your key was replaced or switched off. Click Authorize again, or ask an admin for a new key.</td></tr>
+  <tr><td>403 on an action you need</td><td>Your role doesn't include it (section 3). Ask the right team, or ask an admin to review your role.</td></tr>
+  <tr><td>409 "return window … has closed"</td><td>Returns are only allowed within 14 days of delivery. Use a goodwill refund instead.</td></tr>
+  <tr><td>409 "exceeds refundable"</td><td>The amount is more than what's left to refund, including refunds still waiting for approval.</td></tr>
+  <tr><td>409 "customer … has been erased"</td><td>That customer was deleted on request (DPDP). No new activity can be added.</td></tr>
+  <tr><td>503 "timed out waiting for the CRM database lock"</td><td>The server is overloaded or a request got stuck. Try again in a minute. If it keeps happening, the admin will have an alert.</td></tr>
+  <tr><td>A new order doesn't appear in the CRM</td><td>Check the store's outbox: is the event <span class="mono">pending</span> (the CRM was unreachable) or <span class="mono">dead</span> (rejected: read <span class="mono">last_error</span>)? A common cause is that the vendor or product doesn't exist in the CRM yet.</td></tr>
+  <tr><td>The app won't start on MilesWeb</td><td>Read <span class="mono">stderr.log</span> in the app folder. Check <span class="mono">DATABASE_URL</span>, run <i>Run Pip Install</i> again, and check the Python version is 3.10 or newer.</td></tr>
+</table></div>
+</section>
+
+<!-- ============================== 11 ============================== -->
+<section class="chapter">
+<h2>11 · Quick reference</h2>
+<table class="small">
+  <tr><th style="width:42%">I want to…</th><th>Action on the /docs screen</th><th style="width:15%">Role</th></tr>
+  <tr><td>See my role and permissions</td><td><span class="pill get">GET</span> /me</td><td>anyone</td></tr>
+  <tr><td>See the support queue</td><td><span class="pill get">GET</span> /tickets</td><td>support</td></tr>
+  <tr><td>Look up a customer</td><td><span class="pill get">GET</span> /customers/{customer_id}</td><td>support, marketing</td></tr>
+  <tr><td>Refund a customer</td><td><span class="pill post">POST</span> /orders/{order_id}/refunds</td><td>support</td></tr>
+  <tr><td>See refunds waiting for approval</td><td><span class="pill get">GET</span> /refunds?status=pending_review</td><td>finance</td></tr>
+  <tr><td>Approve / reject a refund</td><td><span class="pill post">POST</span> /refunds/{refund_id}/approve · /reject</td><td>finance</td></tr>
+  <tr><td>See what a vendor is owed</td><td><span class="pill get">GET</span> /vendors/{vendor_id}/ledger</td><td>finance</td></tr>
+  <tr><td>Pay a vendor</td><td><span class="pill post">POST</span> /vendors/{vendor_id}/payouts</td><td>finance</td></tr>
+  <tr><td>Get the tax report</td><td><span class="pill get">GET</span> /finance/tax-report?start=…&amp;end=…</td><td>finance</td></tr>
+  <tr><td>Pay an affiliate</td><td><span class="pill get">GET</span> …/payout-preview, then <span class="pill post">POST</span> /affiliates/{id}/payouts</td><td>finance</td></tr>
+  <tr><td>Onboard a vendor</td><td><span class="pill post">POST</span> /vendors, then documents and milestones</td><td>vendor</td></tr>
+  <tr><td>Check a vendor's progress or score</td><td><span class="pill get">GET</span> /vendors/{vendor_id}</td><td>vendor, finance</td></tr>
+  <tr><td>See my team's alerts</td><td><span class="pill get">GET</span> /tasks?team=…</td><td>each team</td></tr>
+  <tr><td>Close an alert</td><td><span class="pill post">POST</span> /tasks/{task_id}/resolve</td><td>each team</td></tr>
+  <tr><td>Approve an affiliate</td><td><span class="pill post">POST</span> /affiliates/{affiliate_id}/approve</td><td>affiliate</td></tr>
+  <tr><td>Record a marketing opt-out</td><td><span class="pill post">POST</span> /customers/{id}/consent</td><td>support</td></tr>
+  <tr><td>Export a customer's data</td><td><span class="pill get">GET</span> /customers/{id}/export</td><td>support</td></tr>
+  <tr><td>Erase a customer</td><td><span class="pill post">POST</span> /customers/{id}/erase</td><td>admin</td></tr>
+  <tr><td>Add a team member / replace a key</td><td><span class="pill post">POST</span> /users · /users/{name}/rotate-key</td><td>admin</td></tr>
+  <tr><td>Remove a leaver's access</td><td><span class="pill post">POST</span> /users/{name}/deactivate</td><td>admin</td></tr>
+  <tr><td>See who did what</td><td><span class="pill get">GET</span> /audit</td><td>admin</td></tr>
+  <tr><td>See the business overview</td><td><span class="pill get">GET</span> /analytics</td><td>admin</td></tr>
+</table>
+
+<div class="keep"><h3>Key numbers</h3>
+<table class="small">
+  <tr><td style="width:50%">Return window</td><td>14 days after delivery</td></tr>
+  <tr><td>Refunds needing finance approval</td><td>over ₹10,000</td></tr>
+  <tr><td>Vendor review alert</td><td>below 3.5★</td></tr>
+  <tr><td>Commission / GST on commission</td><td>10% of price / 18% of commission</td></tr>
+  <tr><td>TCS / TDS (confirm with your CA)</td><td>0.5% / 0.1% of taxable value (5% TDS without a PAN)</td></tr>
+  <tr><td>Vendor payout cycle</td><td>at most once every 7 days</td></tr>
+  <tr><td>Affiliate tiers</td><td>Bronze 3% · Silver 5% · Gold 7% · Platinum 10%</td></tr>
+  <tr><td>Backups kept</td><td>newest 14, taken nightly</td></tr>
+</table></div>
+<p class="small muted">All these numbers live in one settings file (<span class="mono">sabar_mart_crm/config.py</span>) and can be changed without touching anything else.</p>
+</section>
+
+</body>
+</html>

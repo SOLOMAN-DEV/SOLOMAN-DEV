@@ -6,6 +6,8 @@ The core engine uses only the Python standard library and needs Python 3.10 or l
 
 **Hosting on MilesWeb:** see [DEPLOY_MILESWEB.md](DEPLOY_MILESWEB.md) for cPanel shared hosting (Passenger + MySQL) and for VPS setups.
 
+**User guide (PDF, with screenshots):** [docs/Sabar-Mart-CRM-User-Guide.pdf](docs/Sabar-Mart-CRM-User-Guide.pdf). It covers how each team uses the CRM, connecting the Node.js store, going live on MilesWeb, backups and troubleshooting.
+
 ```bash
 cd sabar-mart-crm
 python -m sabar_mart_crm                 # seeded demo, prints every role's report as JSON
