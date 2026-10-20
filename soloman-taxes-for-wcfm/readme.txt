@@ -6,7 +6,7 @@ Tested up to: 6.7
 Requires PHP: 7.4
 WC requires at least: 6.0
 WC tested up to: 9.5
-Stable tag: 2.4.0
+Stable tag: 2.4.1
 License: GPLv2 or later
 
 Adds India GST (CGST/SGST/IGST) tax calculation and GST-TCS (Section 52, CGST Act) compliance
@@ -166,6 +166,15 @@ to a WCFM Marketplace multivendor store.
   include PHPUnit.
 
 == Changelog ==
+
+= 2.4.1 =
+* CRITICAL FIX: the new "GST & TCS Settings" frontend tab (added in 2.4.0) was visible to
+  vendors on sites where the WCFM vendor role is itself granted the manage_woocommerce
+  capability (so vendors can use WooCommerce's own native product-edit screens) — on such
+  sites every vendor could see and change marketplace-wide rates/settings from their own
+  Store Manager dashboard. The tab now requires manage_options (true WordPress
+  Administrator only) plus an explicit check that the user isn't flagged as a vendor by
+  WCFM, instead of manage_woocommerce. If you updated to 2.4.0, update to 2.4.1 immediately.
 
 = 2.4.0 =
 * CRITICAL COMPLIANCE FIX: the GST-TCS rate default (and the settings-page text describing

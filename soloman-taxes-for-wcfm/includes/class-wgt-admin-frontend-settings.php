@@ -4,13 +4,18 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 /**
- * Lets the marketplace operator (any user with 'manage_woocommerce' — administrator or
- * shop manager) view and update GST/TCS rates and the rest of this plugin's settings from
- * WCFM's own frontend dashboard, without needing wp-admin at all. WCFM's frontend
- * dashboard is role-aware under one URL structure: the same 'wcfm_menus'/'wcfm_load_views'
- * extension points the vendor-facing GST & TCS tab (WGT_Vendor_Dashboard) already uses are
- * reused here, just gated on 'manage_woocommerce' instead of a vendor role — exactly how
- * WCFM's own dashboard tells an admin's view of the dashboard apart from a vendor's.
+ * Lets the marketplace admin (and only the marketplace admin) view and update GST/TCS
+ * rates and the rest of this plugin's settings from WCFM's own frontend dashboard,
+ * without needing wp-admin at all. WCFM's frontend dashboard is role-aware under one URL
+ * structure: the same 'wcfm_menus'/'wcfm_load_views' extension points the vendor-facing
+ * GST & TCS tab (WGT_Vendor_Dashboard) already uses are reused here.
+ *
+ * Gated on is_marketplace_admin(), which requires 'manage_options' (true WordPress
+ * Administrator) rather than 'manage_woocommerce' — on some WCFM Marketplace setups the
+ * vendor role is itself granted 'manage_woocommerce' (so vendors can use WooCommerce's own
+ * native product-edit capability checks), which let this tab leak into the vendor-side
+ * Store Manager dashboard on first release. 'manage_options' is reserved for
+ * Administrators and is never handed to a vendor role by any multivendor plugin.
  *
  * The save path goes through admin-post.php rather than a same-page POST, because
  * admin-post.php always bootstraps the full wp-admin environment before running (the same
@@ -66,12 +71,31 @@ class WGT_Admin_Frontend_Settings {
 	}
 
 	/**
-	 * Only shown to a 'manage_woocommerce' user (administrator/shop manager) viewing their
-	 * own WCFM dashboard — ordinary vendors don't hold that capability, so this never
-	 * appears on a vendor's sidebar alongside their own GST & TCS report tab.
+	 * True only for a true WordPress Administrator — see the class docblock for why this
+	 * checks 'manage_options' rather than 'manage_woocommerce'. Also explicitly excludes
+	 * anyone WCFM itself flags as a vendor, as a second, independent check: even if a
+	 * future role/plugin change ever granted a vendor 'manage_options' by mistake, this
+	 * tab must still never appear for them.
+	 */
+	private function is_marketplace_admin() {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			return false;
+		}
+		if ( function_exists( 'wcfm_is_vendor' ) && wcfm_is_vendor( get_current_user_id() ) ) {
+			return false;
+		}
+		if ( user_can( get_current_user_id(), 'wcfm_vendor' ) || user_can( get_current_user_id(), 'dc_vendor' ) ) {
+			return false;
+		}
+		return true;
+	}
+
+	/**
+	 * Only shown to the marketplace admin viewing their own WCFM dashboard — never a
+	 * vendor, even one whose role happens to carry 'manage_woocommerce'.
 	 */
 	public function add_wcfm_menu_item( $wcfm_menus ) {
-		if ( ! is_array( $wcfm_menus ) || ! current_user_can( 'manage_woocommerce' ) ) {
+		if ( ! is_array( $wcfm_menus ) || ! $this->is_marketplace_admin() ) {
 			return $wcfm_menus;
 		}
 
@@ -109,10 +133,10 @@ class WGT_Admin_Frontend_Settings {
 
 		echo '<div class="wcfm-content-inner wgt-wcfm-settings">';
 
-		if ( ! is_user_logged_in() || ! current_user_can( 'manage_woocommerce' ) ) {
+		if ( ! is_user_logged_in() || ! $this->is_marketplace_admin() ) {
 			// Belt-and-braces: the menu item is already hidden from anyone else, but the
 			// endpoint URL itself isn't secret, so a direct visit is checked again here.
-			echo '<p>' . esc_html__( 'These settings are only available to the marketplace operator.', 'wcfm-gst-tcs' ) . '</p>';
+			echo '<p>' . esc_html__( 'These settings are only available to the marketplace admin.', 'wcfm-gst-tcs' ) . '</p>';
 			echo '</div>';
 			return;
 		}
@@ -163,7 +187,7 @@ class WGT_Admin_Frontend_Settings {
 	public function handle_save() {
 		check_admin_referer( 'wgt_save_settings_frontend' );
 
-		if ( ! current_user_can( 'manage_woocommerce' ) ) {
+		if ( ! $this->is_marketplace_admin() ) {
 			wp_die( esc_html__( 'You do not have permission to do this.', 'wcfm-gst-tcs' ) );
 		}
 
