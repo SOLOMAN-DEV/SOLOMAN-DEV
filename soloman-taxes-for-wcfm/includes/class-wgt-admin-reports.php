@@ -177,50 +177,44 @@ class WGT_Admin_Reports {
 	}
 
 	/**
+	 * Derived from gather_gst_report_by_type() (B2B total + B2C total) instead of running
+	 * its own pass over iterate_orders() — every caller that needs both the overall figures
+	 * and the B2B/B2C split (the admin GST report page, and the vendor dashboard tab) used to
+	 * scan the entire order date range twice per page load. For a vendor/store with a large
+	 * order history that doubled DB + in-PHP work is enough to exceed a host's execution time
+	 * or memory limit, which WordPress surfaces as its "critical error" page — this was traced
+	 * to exactly that after the vendor-side GST & TCS tab started fataling for real order
+	 * volumes that a quick synthetic test (empty order list) never exercised. An order's items
+	 * are always entirely B2B or entirely B2C (type is per-order, not per-item), so summing the
+	 * two buckets is an exact, not approximate, reconstruction of the old single-pass totals.
+	 *
 	 * @return array<int,array{net:float,gst:float,cgst:float,sgst:float,igst:float,order_count:int}>
 	 */
 	public static function gather_gst_report( $date_from, $date_to, $vendor_id = 0 ) {
+		return self::sum_gst_report_by_type( self::gather_gst_report_by_type( $date_from, $date_to, $vendor_id ) );
+	}
+
+	/**
+	 * Collapses gather_gst_report_by_type()'s per-vendor B2B/B2C buckets into the same
+	 * per-vendor totals gather_gst_report() used to compute with its own separate pass over
+	 * iterate_orders(). An order's items are always entirely B2B or entirely B2C (type is
+	 * per-order, not per-item), so this sum is an exact reconstruction, not an approximation.
+	 *
+	 * @param array $by_type Return value of gather_gst_report_by_type().
+	 * @return array<int,array{net:float,gst:float,cgst:float,sgst:float,igst:float,order_count:int}>
+	 */
+	public static function sum_gst_report_by_type( array $by_type ) {
 		$data = array();
 
-		foreach ( self::iterate_orders( $date_from, $date_to ) as $order ) {
-			foreach ( $order->get_items() as $item ) {
-				$v = $item->get_meta( '_wgt_vendor_id' );
-				if ( ! $v && function_exists( 'wcfm_get_vendor_id_by_post' ) ) {
-					$v = wcfm_get_vendor_id_by_post( $item->get_product_id() );
-				}
-				if ( ! $v ) {
-					continue;
-				}
-				$v = (int) $v;
-				if ( $vendor_id && $v !== $vendor_id ) {
-					continue;
-				}
-
-				if ( ! isset( $data[ $v ] ) ) {
-					$data[ $v ] = array(
-						'orders' => array(),
-						'net'    => 0.0,
-						'gst'    => 0.0,
-						'cgst'   => 0.0,
-						'sgst'   => 0.0,
-						'igst'   => 0.0,
-					);
-				}
-
-				$data[ $v ]['orders'][ $order->get_id() ] = true;
-				$data[ $v ]['net']                        += (float) $item->get_total();
-				$data[ $v ]['gst']                        += (float) $item->get_total_tax();
-
-				$split               = self::item_gst_split( $item );
-				$data[ $v ]['cgst'] += $split['cgst'];
-				$data[ $v ]['sgst'] += $split['sgst'];
-				$data[ $v ]['igst'] += $split['igst'];
-			}
-		}
-
-		foreach ( $data as &$row ) {
-			$row['order_count'] = count( $row['orders'] );
-			unset( $row['orders'] );
+		foreach ( $by_type as $v => $types ) {
+			$data[ $v ] = array(
+				'order_count' => $types['B2B']['order_count'] + $types['B2C']['order_count'],
+				'net'         => $types['B2B']['net'] + $types['B2C']['net'],
+				'gst'         => $types['B2B']['gst'] + $types['B2C']['gst'],
+				'cgst'        => $types['B2B']['cgst'] + $types['B2C']['cgst'],
+				'sgst'        => $types['B2B']['sgst'] + $types['B2C']['sgst'],
+				'igst'        => $types['B2B']['igst'] + $types['B2C']['igst'],
+			);
 		}
 
 		return $data;
@@ -377,7 +371,10 @@ class WGT_Admin_Reports {
 		}
 
 		$filters = $this->get_filters();
-		$rows    = self::gather_gst_report( $filters['date_from'], $filters['date_to'], $filters['vendor_id'] );
+		// Fetched once and reused for both the overall summary and the B2B/B2C breakdown
+		// below, instead of scanning the whole order date range twice per page load.
+		$by_type = self::gather_gst_report_by_type( $filters['date_from'], $filters['date_to'], $filters['vendor_id'] );
+		$rows    = self::sum_gst_report_by_type( $by_type );
 		?>
 		<div class="wrap wgt-admin-wrap">
 			<h1><?php esc_html_e( 'Vendor GST Tax Summary', 'wcfm-gst-tcs' ); ?></h1>
@@ -435,7 +432,7 @@ class WGT_Admin_Reports {
 
 			<h2><?php esc_html_e( 'B2B / B2C Breakdown', 'wcfm-gst-tcs' ); ?></h2>
 			<p class="description"><?php esc_html_e( 'GSTR-1 reports B2B (registered buyers) and B2C (unregistered/consumer) supplies separately. Each vendor files their own GSTR-1 using their own figures below.', 'wcfm-gst-tcs' ); ?></p>
-			<?php $this->render_b2b_b2c_table( $filters['date_from'], $filters['date_to'], $filters['vendor_id'] ); ?>
+			<?php $this->render_b2b_b2c_table( $by_type ); ?>
 
 			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="wgt-inline-form">
 				<input type="hidden" name="action" value="wgt_export_gst_report" />
@@ -459,8 +456,10 @@ class WGT_Admin_Reports {
 		<?php
 	}
 
-	private function render_b2b_b2c_table( $date_from, $date_to, $vendor_id ) {
-		$rows = self::gather_gst_report_by_type( $date_from, $date_to, $vendor_id );
+	/**
+	 * @param array $rows Return value of gather_gst_report_by_type(), fetched once by the caller.
+	 */
+	private function render_b2b_b2c_table( array $rows ) {
 		?>
 		<div class="wgt-table-scroll">
 		<table class="widefat striped">

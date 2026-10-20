@@ -6,7 +6,7 @@ Tested up to: 6.7
 Requires PHP: 7.4
 WC requires at least: 6.0
 WC tested up to: 9.5
-Stable tag: 2.3.0
+Stable tag: 2.3.1
 License: GPLv2 or later
 
 Adds India GST (CGST/SGST/IGST) tax calculation and GST-TCS (Section 52, CGST Act) compliance
@@ -166,6 +166,20 @@ to a WCFM Marketplace multivendor store.
   include PHPUnit.
 
 == Changelog ==
+
+= 2.3.1 =
+* CRITICAL FIX: the vendor-side "GST & TCS" tab in the WCFM Store Manager dashboard could
+  fatal with WordPress's "critical error" page instead of rendering. Root cause: the tab
+  (and the equivalent wp-admin "Vendor GST Tax Summary" report page) independently called
+  gather_gst_report() and gather_gst_report_by_type() — each of which scans every matching
+  order in the selected date range (the tab defaults to the whole financial year) — so a
+  single page load scanned the vendor's/store's entire order history twice. For a store
+  with real order volume that doubled cost was enough to exceed a host's PHP execution-time
+  or memory limit. Fixed by computing the B2B/B2C breakdown once and deriving the overall
+  totals from it by simple addition (an order's items are always entirely B2B or entirely
+  B2C, so this is an exact reconstruction, not an approximation) — the order history is now
+  scanned once per page load instead of twice. No figures or behavior change, only the
+  underlying query cost.
 
 = 2.3.0 =
 * CRITICAL FIX: HSN/SAC and GST Rate entered on a product through the WCFM frontend product

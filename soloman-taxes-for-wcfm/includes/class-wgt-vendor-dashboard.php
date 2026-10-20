@@ -179,7 +179,19 @@ class WGT_Vendor_Dashboard {
 		// Sales/GST figures come from the vendor's actual orders (same source as the admin
 		// GST report), not the TCS ledger — the ledger only gets rows when GST-TCS
 		// collection is switched on, and a store can run GST without ever enabling TCS.
-		$sales_by_vendor = WGT_Admin_Reports::gather_gst_report( $date_from, $date_to, $vendor_id );
+		//
+		// Fetched once (by type) and the overall totals derived from it by summation,
+		// instead of separately calling gather_gst_report() and gather_gst_report_by_type()
+		// — each of which scans the whole order date range on its own. Doing that scan
+		// twice on every load of this one tab was enough to exceed a host's execution
+		// time/memory limit for a vendor with real order volume, surfacing as WordPress's
+		// "critical error" page.
+		$empty_type_row  = array( 'order_count' => 0, 'net' => 0.0, 'gst' => 0.0, 'cgst' => 0.0, 'sgst' => 0.0, 'igst' => 0.0 );
+		$sales_by_type   = WGT_Admin_Reports::gather_gst_report_by_type( $date_from, $date_to, $vendor_id );
+		$by_type         = isset( $sales_by_type[ $vendor_id ] )
+			? $sales_by_type[ $vendor_id ]
+			: array( 'B2B' => $empty_type_row, 'B2C' => $empty_type_row );
+		$sales_by_vendor = WGT_Admin_Reports::sum_gst_report_by_type( $sales_by_type );
 		$sales           = isset( $sales_by_vendor[ $vendor_id ] ) ? $sales_by_vendor[ $vendor_id ] : array(
 			'order_count' => 0,
 			'net'         => 0.0,
@@ -193,12 +205,6 @@ class WGT_Vendor_Dashboard {
 		$tcs_summary = $tcs_enabled
 			? WGT_TCS_Engine::get_vendor_summary( $vendor_id, array( 'date_from' => $date_from, 'date_to' => $date_to ) )
 			: array();
-
-		$empty_type_row = array( 'order_count' => 0, 'net' => 0.0, 'gst' => 0.0, 'cgst' => 0.0, 'sgst' => 0.0, 'igst' => 0.0 );
-		$sales_by_type  = WGT_Admin_Reports::gather_gst_report_by_type( $date_from, $date_to, $vendor_id );
-		$by_type        = isset( $sales_by_type[ $vendor_id ] )
-			? $sales_by_type[ $vendor_id ]
-			: array( 'B2B' => $empty_type_row, 'B2C' => $empty_type_row );
 
 		$gst         = WGT_Vendor_Settings::get_vendor_gst( $vendor_id );
 		$missing_hsn = class_exists( 'WGT_Product_Fields' ) ? WGT_Product_Fields::count_missing_hsn( $vendor_id ) : 0;
