@@ -6,7 +6,7 @@ Tested up to: 6.7
 Requires PHP: 7.4
 WC requires at least: 6.0
 WC tested up to: 9.5
-Stable tag: 2.3.1
+Stable tag: 2.4.0
 License: GPLv2 or later
 
 Adds India GST (CGST/SGST/IGST) tax calculation and GST-TCS (Section 52, CGST Act) compliance
@@ -166,6 +166,23 @@ to a WCFM Marketplace multivendor store.
   include PHPUnit.
 
 == Changelog ==
+
+= 2.4.0 =
+* CRITICAL COMPLIANCE FIX: the GST-TCS rate default (and the settings-page text describing
+  it) still said 1% — the pre-July-2024 rate. CBIC Notification No. 15/2024-Central Tax
+  (effective 10 July 2024) halved the Section 52 TCS rate to 0.5% (0.25% CGST + 0.25% SGST
+  intra-state, or 0.5% IGST inter-state). New installs now default to 0.5%, the settings
+  description cites the notification, and a one-time migration corrects an existing site's
+  saved rate from 1% to 0.5% IF it was never changed from that old default (a deliberately
+  customized rate is left untouched) — with a one-time admin notice explaining the change.
+  If your TCS rate setting was at 1% before updating, re-check your TCS collection since
+  10 July 2024 with your CA.
+* NEW: the marketplace operator (any user with the manage_woocommerce capability) can now
+  view and update every GST & TCS setting — rates, HSN requirement, B2B rules, company
+  GSTIN, monthly email, etc. — from a new "GST & TCS Settings" tab inside WCFM's own
+  frontend Store Manager dashboard, not just wp-admin. Vendors never see this tab; it uses
+  the same manage_woocommerce check as the wp-admin Settings page.
+* Fixed two stray code comments that still described the TCS rate as a fixed 1%.
 
 = 2.3.1 =
 * CRITICAL FIX: the vendor-side "GST & TCS" tab in the WCFM Store Manager dashboard could

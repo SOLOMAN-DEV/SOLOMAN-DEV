@@ -4,10 +4,12 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 /**
- * GST-TCS ledger (Section 52, CGST Act) — 1% of the net taxable value of goods/services
- * supplied through the marketplace by each vendor, collected by the marketplace operator
- * and reported on GSTR-8. This works whether WCFM splits an order into one suborder per
- * vendor or keeps a single shared order, because attribution happens per line item.
+ * GST-TCS ledger (Section 52, CGST Act) — a configurable percentage (0.5% by default,
+ * per CBIC Notification No. 15/2024-Central Tax effective 10 July 2024, which halved the
+ * original 1% rate) of the net taxable value of goods/services supplied through the
+ * marketplace by each vendor, collected by the marketplace operator and reported on
+ * GSTR-8. This works whether WCFM splits an order into one suborder per vendor or keeps
+ * a single shared order, because attribution happens per line item.
  */
 class WGT_TCS_Engine {
 
@@ -120,8 +122,9 @@ class WGT_TCS_Engine {
 
 	/**
 	 * Pure TCS-split arithmetic, pulled out so it can be unit tested without a database or
-	 * WC_Order: 1% (configurable) of net taxable value, split half CGST/half SGST when the
-	 * vendor is in the same state as the marketplace operator, or wholly IGST otherwise.
+	 * WC_Order: the configured tcs_rate (0.5% by default) of net taxable value, split half
+	 * CGST/half SGST when the vendor is in the same state as the marketplace operator, or
+	 * wholly IGST otherwise.
 	 *
 	 * @return array{tcs_amount:float,cgst:float,sgst:float,igst:float}
 	 */

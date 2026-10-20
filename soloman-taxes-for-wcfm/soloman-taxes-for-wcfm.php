@@ -3,7 +3,7 @@
  * Plugin Name: SOLOMAN TAXES FOR WCFM
  * Plugin URI: https://example.com/soloman-taxes-for-wcfm
  * Description: Adds India GST (CGST/SGST/IGST) tax calculation and GST-TCS (Sec 52) compliance to a WCFM Marketplace multivendor store — per-product HSN/GST rates, vendor GSTIN capture, B2B checkout, PDF GST invoices, and GSTR-1/GSTR-8 style reports.
- * Version: 2.3.1
+ * Version: 2.4.0
  * Author: Soloman Dev
  * Text Domain: wcfm-gst-tcs
  * Domain Path: /languages
@@ -17,7 +17,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'WGT_VERSION', '2.3.1' );
+define( 'WGT_VERSION', '2.4.0' );
 define( 'WGT_PLUGIN_FILE', __FILE__ );
 define( 'WGT_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'WGT_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
@@ -43,6 +43,7 @@ unset( $wgt_autoload );
 require_once WGT_PLUGIN_DIR . 'includes/class-wgt-states.php';
 require_once WGT_PLUGIN_DIR . 'includes/class-wgt-install.php';
 require_once WGT_PLUGIN_DIR . 'includes/class-wgt-admin-settings.php';
+require_once WGT_PLUGIN_DIR . 'includes/class-wgt-admin-frontend-settings.php';
 require_once WGT_PLUGIN_DIR . 'includes/class-wgt-vendor-settings.php';
 require_once WGT_PLUGIN_DIR . 'includes/class-wgt-product-fields.php';
 require_once WGT_PLUGIN_DIR . 'includes/class-wgt-tax-engine.php';
@@ -100,6 +101,7 @@ final class WCFM_GST_TCS_Plugin {
 		load_plugin_textdomain( 'wcfm-gst-tcs', false, dirname( plugin_basename( WGT_PLUGIN_FILE ) ) . '/languages' );
 
 		WGT_Admin_Settings::instance();
+		WGT_Admin_Frontend_Settings::instance();
 		WGT_Vendor_Settings::instance();
 		WGT_Product_Fields::instance();
 		WGT_Tax_Engine::instance();

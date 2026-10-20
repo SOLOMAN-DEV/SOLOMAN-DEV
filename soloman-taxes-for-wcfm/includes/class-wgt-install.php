@@ -11,8 +11,10 @@ class WGT_Install {
 
 		add_rewrite_endpoint( 'gst-tcs-report', EP_ROOT | EP_PAGES );
 		add_rewrite_endpoint( 'wgt-reports', EP_ALL );
+		add_rewrite_endpoint( 'wgt-admin-settings', EP_ALL );
 		flush_rewrite_rules();
 		update_option( 'wgt_wcfm_endpoint_flushed', 'yes' );
+		update_option( 'wgt_admin_settings_endpoint_flushed', 'yes' );
 	}
 
 	private static function create_tables() {
@@ -56,7 +58,9 @@ class WGT_Install {
 				array(
 					'enable_gst'        => 'yes',
 					'enable_tcs'        => 'yes',
-					'tcs_rate'          => 1,
+					// 0.5% — CBIC Notification No. 15/2024-Central Tax (10 July 2024);
+					// see WGT_Admin_Settings::get_settings() for the full citation.
+					'tcs_rate'          => 0.5,
 					'company_legal_name' => get_bloginfo( 'name' ),
 					'company_gstin'     => '',
 					'company_state'     => '',

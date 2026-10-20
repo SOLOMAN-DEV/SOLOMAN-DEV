@@ -55,7 +55,63 @@
 .wgt-admin-wrap input[type="text"],
 .wgt-admin-wrap select,
 .wgt-vendor-report input[type="date"],
-.wgt-vendor-report input[type="number"] {
+.wgt-vendor-report input[type="number"],
+.wgt-wcfm-settings input[type="date"],
+.wgt-wcfm-settings input[type="number"],
+.wgt-wcfm-settings input[type="text"],
+.wgt-wcfm-settings select {
 	max-width: 100%;
 	box-sizing: border-box;
+}
+
+/* Fallback styling for the settings form-table on the WCFM frontend admin tab
+   (WGT_Admin_Frontend_Settings) — wp-admin's own forms.css, which normally styles
+   .form-table, isn't enqueued on the frontend, so without this the table would render
+   as a bare, unstyled HTML table. Mirrors wp-admin's layout closely enough to look at
+   home next to the rest of the WCFM dashboard. */
+.wgt-wcfm-settings .form-table {
+	width: 100%;
+	border-collapse: collapse;
+	margin: 1em 0;
+}
+.wgt-wcfm-settings .form-table th,
+.wgt-wcfm-settings .form-table td {
+	text-align: left;
+	vertical-align: top;
+	padding: 12px 10px;
+	border-bottom: 1px solid #eee;
+}
+.wgt-wcfm-settings .form-table th {
+	width: 220px;
+	font-weight: 600;
+}
+.wgt-wcfm-settings .form-table .description {
+	margin: 6px 0 0;
+	font-size: 0.9em;
+	color: #666;
+}
+.wgt-wcfm-settings .form-table input[type="text"],
+.wgt-wcfm-settings .form-table input[type="number"],
+.wgt-wcfm-settings .form-table select {
+	width: 100%;
+	max-width: 400px;
+}
+.wgt-wcfm-settings .form-table .small-text { max-width: 100px; }
+.wgt-wcfm-settings .submit { margin-top: 10px; }
+
+@media screen and (max-width: 600px) {
+	.wgt-wcfm-settings .form-table th,
+	.wgt-wcfm-settings .form-table td {
+		display: block;
+		width: 100% !important;
+		box-sizing: border-box;
+		padding: 6px 0;
+	}
+	.wgt-wcfm-settings .form-table th { border-bottom: none; padding-bottom: 0; }
+	.wgt-wcfm-settings .form-table tr { display: block; border-bottom: 1px solid #eee; padding-bottom: 8px; margin-bottom: 8px; }
+	.wgt-wcfm-settings .form-table input[type="text"],
+	.wgt-wcfm-settings .form-table input[type="number"],
+	.wgt-wcfm-settings .form-table select {
+		max-width: 100%;
+	}
 }
